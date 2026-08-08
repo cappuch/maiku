@@ -39,7 +39,10 @@ type App struct {
 	session *core.AgentSession
 	mgr     *core.SessionManager
 	cancel  context.CancelFunc
-	unsub   func()
+	// promptGen identifies the active Prompt goroutine so a cancelled/switched
+	// run cannot clear a newer cancel or emit idle/error into the new session.
+	promptGen uint64
+	unsub     func()
 
 	usage UsageTotals
 
@@ -263,6 +266,16 @@ func (a *App) ensureSession() error {
 }
 
 func (a *App) rebuildSessionLocked(mgr *core.SessionManager) error {
+	// Cancel any in-flight prompt before tearing down the session so late
+	// stream/idle events cannot land on the replacement session.
+	if a.cancel != nil {
+		a.cancel()
+		a.cancel = nil
+	}
+	a.promptGen++
+	if a.session != nil {
+		a.session.Abort()
+	}
 	if a.unsub != nil {
 		a.unsub()
 		a.unsub = nil
@@ -282,6 +295,7 @@ func (a *App) rebuildSessionLocked(mgr *core.SessionManager) error {
 		_ = os.MkdirAll(dir, 0o755)
 		mgr = core.NewSessionManager(cwd, dir, true)
 	}
+	_ = mgr.EnsurePersisted()
 	a.mgr = mgr
 	a.usage = UsageTotals{}
 	a.recomputeUsageLocked(mgr.Messages())
@@ -943,13 +957,17 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 	cwd := a.cwd
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.cancel = cancel
+	a.promptGen++
+	promptGen := a.promptGen
 	session := a.session
 	a.mu.Unlock()
 
 	expanded, err := core.ExpandAtMentions(cwd, displayText)
 	if err != nil {
 		a.mu.Lock()
-		a.cancel = nil
+		if a.promptGen == promptGen {
+			a.cancel = nil
+		}
 		a.mu.Unlock()
 		cancel()
 		return err
@@ -991,12 +1009,22 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 	go func() {
 		defer func() {
 			a.mu.Lock()
-			a.cancel = nil
+			active := a.promptGen == promptGen
+			if active {
+				a.cancel = nil
+			}
 			a.mu.Unlock()
-			a.emit("maiku:idle", map[string]any{"ok": true})
+			if active {
+				a.emit("maiku:idle", map[string]any{"ok": true})
+			}
 		}()
 		if err := session.Prompt(ctx, promptText, aiImages...); err != nil {
-			a.emit("maiku:error", map[string]any{"error": err.Error()})
+			a.mu.Lock()
+			active := a.promptGen == promptGen
+			a.mu.Unlock()
+			if active {
+				a.emit("maiku:error", map[string]any{"error": err.Error()})
+			}
 		}
 	}()
 	return nil

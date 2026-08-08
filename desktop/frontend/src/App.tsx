@@ -65,20 +65,25 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Bumped on every refresh (and session switch) so a slow in-flight refresh
+  // cannot overwrite a newer session after NewSession / OpenSession.
+  const refreshGenRef = useRef(0);
 
   const refresh = useCallback(async () => {
-    const [s, sess, mods, apiKeys] = await Promise.all([
-      GetState(),
-      ListSessions(),
-      ListModels(),
-      ListAPIKeys(),
-    ]);
+    const gen = ++refreshGenRef.current;
+    // Apply session state first — ListModels does network I/O and must not
+    // leave a stale GetState snapshot pending across a session switch.
+    const [s, sess] = await Promise.all([GetState(), ListSessions()]);
+    if (gen !== refreshGenRef.current) return;
     const next = normalizeState(s);
     setState(next);
     setMessages(next.messages);
     setUsage(next.usage);
     setStreaming(next.streaming);
     setSessions((sess as SessionSummary[]) || []);
+
+    const [mods, apiKeys] = await Promise.all([ListModels(), ListAPIKeys()]);
+    if (gen !== refreshGenRef.current) return;
     setModels((mods as ModelInfo[]) || []);
     setKeys((apiKeys as APIKeyStatus[]) || []);
   }, []);
@@ -349,27 +354,37 @@ export default function App() {
       onSend={onSend}
       onAbort={() => Abort()}
       onNewSession={async () => {
-        await NewSession();
+        refreshGenRef.current += 1;
         setMessages([]);
         setStreamText("");
+        setStreaming(false);
+        await NewSession();
         await refresh();
       }}
       onOpenFolder={async () => {
-        await OpenFolder();
+        refreshGenRef.current += 1;
         setMessages([]);
+        setStreamText("");
+        setStreaming(false);
+        await OpenFolder();
         await refresh();
       }}
       onOpenRecentFolder={async (path) => {
         try {
-          await OpenRecentFolder(path);
+          refreshGenRef.current += 1;
           setMessages([]);
           setStreamText("");
+          setStreaming(false);
+          await OpenRecentFolder(path);
           await refresh();
         } catch (e: any) {
           setError(e?.message || String(e));
         }
       }}
       onOpenSession={async (path) => {
+        refreshGenRef.current += 1;
+        setStreamText("");
+        setStreaming(false);
         await OpenSession(path);
         await refresh();
       }}

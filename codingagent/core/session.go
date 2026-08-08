@@ -308,6 +308,35 @@ func (s *SessionManager) Messages() []ai.Message {
 	return append([]ai.Message{}, s.messages...)
 }
 
+// EnsurePersisted writes the session header to disk if this manager is
+// configured to persist and the file does not exist yet. Empty new sessions
+// otherwise stay invisible to ListSessionSummaries until the first message.
+func (s *SessionManager) EnsurePersisted() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.persist || s.file == "" || s.headerWritten {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(s.file), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(s.file, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	headerLine, err := json.Marshal(s.header)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(append(headerLine, '\n')); err != nil {
+		return err
+	}
+	s.headerWritten = true
+	return nil
+}
+
 // AppendMessage records a message in memory and, for persisted sessions,
 // appends it to the session file.
 func (s *SessionManager) AppendMessage(message ai.Message) error {
