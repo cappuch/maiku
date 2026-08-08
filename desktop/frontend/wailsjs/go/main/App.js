@@ -6,6 +6,22 @@ export function Abort() {
   return window['go']['main']['App']['Abort']();
 }
 
+export function BeginOpenAICodexLogin() {
+  return window['go']['main']['App']['BeginOpenAICodexLogin']();
+}
+
+export function CancelOpenAICodexLogin() {
+  return window['go']['main']['App']['CancelOpenAICodexLogin']();
+}
+
+export function CompletePath(arg1) {
+  return window['go']['main']['App']['CompletePath'](arg1);
+}
+
+export function FinishOpenAICodexLogin() {
+  return window['go']['main']['App']['FinishOpenAICodexLogin']();
+}
+
 export function GetState() {
   return window['go']['main']['App']['GetState']();
 }
@@ -30,12 +46,28 @@ export function OpenFolder() {
   return window['go']['main']['App']['OpenFolder']();
 }
 
+export function OpenRecentFolder(arg1) {
+  return window['go']['main']['App']['OpenRecentFolder'](arg1);
+}
+
 export function OpenSession(arg1) {
   return window['go']['main']['App']['OpenSession'](arg1);
 }
 
-export function Prompt(arg1) {
-  return window['go']['main']['App']['Prompt'](arg1);
+export function PickFiles() {
+  return window['go']['main']['App']['PickFiles']();
+}
+
+export function Prompt(arg1, arg2) {
+  return window['go']['main']['App']['Prompt'](arg1, arg2);
+}
+
+export function RecentDirs() {
+  return window['go']['main']['App']['RecentDirs']();
+}
+
+export function RenameSession(arg1, arg2) {
+  return window['go']['main']['App']['RenameSession'](arg1, arg2);
 }
 
 export function SetAPIKey(arg1, arg2) {

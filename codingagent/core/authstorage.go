@@ -1,16 +1,20 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mikus/maiku/ai/auth"
+	openaicodexoauth "github.com/mikus/maiku/ai/auth/openaicodex"
 	"github.com/mikus/maiku/codingagent"
 )
 
@@ -204,7 +208,8 @@ func (s *AuthStorage) persistLocked() error {
 }
 
 // APIKey returns a usable API key for a provider from the store, or "" when
-// there is none. OAuth credentials expose their access token.
+// there is none. OAuth credentials expose their access token (refreshing
+// openai-codex tokens when expired).
 func (s *AuthStorage) APIKey(provider string) string {
 	credential, ok := s.Read(provider)
 	if !ok {
@@ -214,6 +219,11 @@ func (s *AuthStorage) APIKey(provider string) string {
 	case CredentialAPIKey:
 		return credential.Key
 	case CredentialOAuth:
+		if provider == "openai-codex" {
+			if refreshed, err := s.refreshOpenAICodexIfNeeded(credential); err == nil {
+				return refreshed.Access
+			}
+		}
 		return credential.Access
 	}
 	return ""
@@ -240,6 +250,40 @@ func InstallAuthStorage(storage *AuthStorage) {
 		return
 	}
 	auth.SetCredentialLookup(storage.APIKey)
+}
+
+const oauthRefreshSkew = 60 * time.Second
+
+func (s *AuthStorage) refreshOpenAICodexIfNeeded(credential Credential) (Credential, error) {
+	if credential.Access == "" || credential.Refresh == "" {
+		return credential, fmt.Errorf("incomplete openai-codex oauth credential")
+	}
+	expiresAt := time.UnixMilli(credential.Expires)
+	if credential.Expires > 0 && time.Now().Add(oauthRefreshSkew).Before(expiresAt) {
+		return credential, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	token, err := openaicodexoauth.Refresh(ctx, credential.Refresh)
+	if err != nil {
+		// Fall back to the existing access token if refresh fails and it is
+		// still present; the stream call will surface auth errors.
+		if credential.Access != "" {
+			return credential, nil
+		}
+		return credential, err
+	}
+	updated := Credential{
+		Type:    CredentialOAuth,
+		Access:  token.Access,
+		Refresh: token.Refresh,
+		Expires: token.Expires.UnixMilli(),
+		Extra:   credential.Extra,
+	}
+	if err := s.Write("openai-codex", updated); err != nil {
+		return updated, err
+	}
+	return updated, nil
 }
 
 var (

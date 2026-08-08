@@ -54,10 +54,14 @@ type RetrySettings struct {
 // settings.json written by the TypeScript CLI round-trips without loss when
 // only inspected here.
 type Settings struct {
-	DefaultProvider      string                 `json:"defaultProvider,omitempty"`
-	DefaultModel         string                 `json:"defaultModel,omitempty"`
-	DefaultThinkingLevel string                 `json:"defaultThinkingLevel,omitempty"`
-	Transport            string                 `json:"transport,omitempty"`
+	DefaultProvider      string            `json:"defaultProvider,omitempty"`
+	DefaultModel         string            `json:"defaultModel,omitempty"`
+	DefaultThinkingLevel string            `json:"defaultThinkingLevel,omitempty"`
+	// Reasoning maps a model id to its saved reasoning level (off, low, medium,
+	// high, …). Each model keeps its own preference; models without an entry
+	// fall back to the default level.
+	Reasoning map[string]string `json:"reasoning,omitempty"`
+	Transport string            `json:"transport,omitempty"`
 	Theme                string                 `json:"theme,omitempty"`
 	ShellPath            string                 `json:"shellPath,omitempty"`
 	ShellCommandPrefix   string                 `json:"shellCommandPrefix,omitempty"`
@@ -256,4 +260,89 @@ func (s Settings) TransportOrDefault() string {
 		return s.Transport
 	}
 	return DefaultTransport
+}
+
+// ThinkingLevelForModel returns the reasoning level saved for modelID, if any.
+func (s Settings) ThinkingLevelForModel(modelID string) (string, bool) {
+	if modelID == "" {
+		return "", false
+	}
+	level, ok := s.Reasoning[modelID]
+	return level, ok && level != ""
+}
+
+// PatchGlobalSettings merges patch into ~/.maiku/agent/settings.json,
+// preserving unknown keys. Creates the file and parent dirs when missing.
+func PatchGlobalSettings(agentDir string, patch map[string]any) error {
+	if agentDir == "" {
+		agentDir = codingagent.GetAgentDir()
+	}
+	path := GlobalSettingsPath(codingagent.ExpandTildePath(agentDir))
+	raw, err := readSettingsFile(path)
+	if err != nil {
+		return err
+	}
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	for k, v := range patch {
+		if v == nil {
+			delete(raw, k)
+			continue
+		}
+		raw[k] = v
+	}
+	return writeSettingsFile(path, raw)
+}
+
+func writeSettingsFile(path string, raw map[string]any) error {
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+// SetDefaultModel writes defaultProvider / defaultModel into global settings.
+func SetDefaultModel(agentDir, provider, model string) error {
+	return PatchGlobalSettings(agentDir, map[string]any{
+		"defaultProvider": provider,
+		"defaultModel":    model,
+	})
+}
+
+// SetModelThinkingLevel records the reasoning level for a single model id in
+// global settings. Entries for other models are preserved, so switching models
+// keeps each model's own reasoning preference. An empty level removes the entry.
+func SetModelThinkingLevel(agentDir, modelID, level string) error {
+	if agentDir == "" {
+		agentDir = codingagent.GetAgentDir()
+	}
+	path := GlobalSettingsPath(codingagent.ExpandTildePath(agentDir))
+	raw, err := readSettingsFile(path)
+	if err != nil {
+		return err
+	}
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	reasoning, _ := raw["reasoning"].(map[string]any)
+	if reasoning == nil {
+		reasoning = map[string]any{}
+	}
+	if level == "" {
+		delete(reasoning, modelID)
+	} else {
+		reasoning[modelID] = level
+	}
+	if len(reasoning) == 0 {
+		delete(raw, "reasoning")
+	} else {
+		raw["reasoning"] = reasoning
+	}
+	return writeSettingsFile(path, raw)
 }

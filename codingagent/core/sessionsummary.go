@@ -19,6 +19,7 @@ type SessionSummary struct {
 	Cwd       string `json:"cwd"`
 	Preview   string `json:"preview"`
 	ModTime   string `json:"modTime"`
+	Name      string `json:"name"` // user-assigned display name, optional
 }
 
 // ListSessionSummaries scans dir (non-recursively) and also one level of
@@ -26,6 +27,7 @@ type SessionSummary struct {
 func ListSessionSummaries(dir string) []SessionSummary {
 	var out []SessionSummary
 	seen := map[string]bool{}
+	names := LoadSessionNames()
 
 	addFile := func(path string) {
 		if seen[path] {
@@ -48,6 +50,7 @@ func ListSessionSummaries(dir string) []SessionSummary {
 			Cwd:       header.Cwd,
 			Preview:   firstUserPreview(path),
 			ModTime:   mod,
+			Name:      names[path],
 		})
 	}
 

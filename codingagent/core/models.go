@@ -14,15 +14,18 @@ import (
 // several API keys are present.
 const DefaultProviderID = "anthropic"
 
-// DefaultModelID is the model used when the default provider is available.
-const DefaultModelID = "claude-sonnet-4-5"
-
-// AllProviders returns the built-in provider catalog in preference order.
+// AllProviders returns known providers with their fetched model catalogs.
 func AllProviders() []providers.Provider {
-	return providers.All()
+	builtin := providers.All()
+	out := make([]providers.Provider, len(builtin))
+	for i, p := range builtin {
+		out[i] = p
+		out[i].Models = CachedRemoteModels(p.ID)
+	}
+	return out
 }
 
-// AllModels returns every model in the built-in catalog.
+// AllModels returns every fetched model across providers that have been refreshed.
 func AllModels() []ai.Model {
 	var models []ai.Model
 	for _, provider := range AllProviders() {
@@ -31,39 +34,27 @@ func AllModels() []ai.Model {
 	return models
 }
 
-// FindProvider returns the provider with the given id.
+// FindProvider returns the provider with the given id and its fetched models.
 func FindProvider(id string) (providers.Provider, bool) {
-	for _, provider := range AllProviders() {
-		if provider.ID == id {
-			return provider, true
-		}
-	}
-	return providers.Provider{}, false
+	return ProviderWithModels(id)
 }
 
-// HasAPIKey reports whether an API key for the provider is available from the
-// environment.
+// HasAPIKey reports whether an API key for the provider is available.
 func HasAPIKey(providerID string) bool {
 	return auth.ResolveAPIKey(providerID) != ""
 }
 
 // ResolveModelOptions describes the user's model selection inputs.
 type ResolveModelOptions struct {
-	// Provider is the --provider value, if any.
-	Provider string
-	// Model is the --model value: an exact id, a "provider/id" pair, or a
-	// substring to match.
-	Model string
-	// RequireAPIKey restricts fallback selection to providers that have a
-	// usable API key.
+	Provider      string
+	Model         string
 	RequireAPIKey bool
 }
 
-// ResolveModel picks a model from the built-in catalog.
+// ResolveModel picks a model from the fetched catalog.
 //
-// Resolution order: explicit provider+model, "provider/id", exact model id,
-// substring match, then the default model for whichever provider has an API
-// key available.
+// Call RefreshProviderModels first for the relevant provider(s). Without a
+// successful fetch the catalog is empty and resolution fails.
 func ResolveModel(options ResolveModelOptions) (ai.Model, error) {
 	candidates := AllModels()
 	if options.Provider != "" {
@@ -72,6 +63,9 @@ func ResolveModel(options ResolveModelOptions) (ai.Model, error) {
 			return ai.Model{}, fmt.Errorf("unknown provider %q (known: %s)", options.Provider, strings.Join(providerIDs(), ", "))
 		}
 		candidates = provider.Models
+		if len(candidates) == 0 {
+			return ai.Model{}, fmt.Errorf("provider %q has no models yet — add an API key and refresh the models list", options.Provider)
+		}
 	}
 
 	spec := strings.TrimSpace(options.Model)
@@ -79,8 +73,6 @@ func ResolveModel(options ResolveModelOptions) (ai.Model, error) {
 		return defaultModel(options.Provider, options.RequireAPIKey)
 	}
 
-	// Exact id match first: OpenRouter ids such as "anthropic/claude-sonnet-4.5"
-	// contain a slash themselves, so this must be tried before splitting.
 	for _, model := range candidates {
 		if model.ID == spec {
 			return model, nil
@@ -89,6 +81,9 @@ func ResolveModel(options ResolveModelOptions) (ai.Model, error) {
 
 	if providerID, rest, ok := strings.Cut(spec, "/"); ok && options.Provider == "" {
 		if provider, found := FindProvider(providerID); found {
+			if len(provider.Models) == 0 {
+				return ai.Model{}, fmt.Errorf("provider %q has no models yet — add an API key and refresh the models list", providerID)
+			}
 			for _, model := range provider.Models {
 				if model.ID == rest {
 					return model, nil
@@ -104,8 +99,6 @@ func ResolveModel(options ResolveModelOptions) (ai.Model, error) {
 	}
 
 	lower := strings.ToLower(spec)
-	// Ignore very short substring queries (e.g. settings leftover "x") — they
-	// match almost every provider id and produce confusing results.
 	if len(lower) >= 3 {
 		for _, model := range candidates {
 			if strings.Contains(strings.ToLower(model.ID), lower) || strings.Contains(strings.ToLower(model.Name), lower) {
@@ -114,6 +107,9 @@ func ResolveModel(options ResolveModelOptions) (ai.Model, error) {
 		}
 	}
 
+	if len(candidates) == 0 {
+		return ai.Model{}, fmt.Errorf("no models loaded — configure a provider API key and refresh (try --list-models)")
+	}
 	return ai.Model{}, fmt.Errorf("no model matching %q (try --list-models)", spec)
 }
 
@@ -124,47 +120,56 @@ func defaultModel(providerID string, requireAPIKey bool) (ai.Model, error) {
 			return ai.Model{}, fmt.Errorf("unknown provider %q (known: %s)", providerID, strings.Join(providerIDs(), ", "))
 		}
 		if len(provider.Models) == 0 {
-			return ai.Model{}, fmt.Errorf("provider %q has no models", providerID)
+			return ai.Model{}, fmt.Errorf("provider %q has no models yet — add an API key and refresh the models list", providerID)
 		}
 		return provider.Models[0], nil
 	}
 
-	if !requireAPIKey {
-		if model, err := ResolveModel(ResolveModelOptions{Provider: DefaultProviderID, Model: DefaultModelID}); err == nil {
-			return model, nil
+	try := func(id string) (ai.Model, bool) {
+		if requireAPIKey && !HasAPIKey(id) {
+			return ai.Model{}, false
 		}
+		p, ok := FindProvider(id)
+		if !ok || len(p.Models) == 0 {
+			return ai.Model{}, false
+		}
+		return p.Models[0], true
 	}
 
-	if HasAPIKey(DefaultProviderID) {
-		if model, err := ResolveModel(ResolveModelOptions{Provider: DefaultProviderID, Model: DefaultModelID}); err == nil {
-			return model, nil
-		}
+	if m, ok := try(DefaultProviderID); ok {
+		return m, nil
 	}
 	for _, provider := range AllProviders() {
-		if HasAPIKey(provider.ID) && len(provider.Models) > 0 {
+		if requireAPIKey && !HasAPIKey(provider.ID) {
+			continue
+		}
+		if len(provider.Models) > 0 {
 			return provider.Models[0], nil
 		}
 	}
 
-	return ai.Model{}, fmt.Errorf(
-		"no API key found. Set a provider key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY) or store credentials in ~/.maiku/agent/auth.json",
-	)
+	if requireAPIKey {
+		return ai.Model{}, fmt.Errorf(
+			"no API key found. Set a provider key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY) or store credentials in ~/.maiku/agent/auth.json",
+		)
+	}
+	return ai.Model{}, fmt.Errorf("no models loaded — configure a provider API key and refresh (try --list-models)")
 }
 
 func providerIDs() []string {
 	var ids []string
-	for _, provider := range AllProviders() {
+	for _, provider := range providers.All() {
 		ids = append(ids, provider.ID)
 	}
 	sort.Strings(ids)
 	return ids
 }
 
-// FormatModelList renders the catalog for --list-models, optionally filtered
-// by a case-insensitive substring.
+// FormatModelList renders the fetched catalog for --list-models.
 func FormatModelList(search string) string {
 	var b strings.Builder
 	lower := strings.ToLower(search)
+	anyProvider := false
 
 	for _, provider := range AllProviders() {
 		var matched []ai.Model
@@ -179,10 +184,13 @@ func FormatModelList(search string) string {
 		if len(matched) == 0 {
 			continue
 		}
+		anyProvider = true
 
 		keyState := "no API key"
 		if envVar := auth.FindEnvVar(provider.ID); envVar != "" {
 			keyState = envVar
+		} else if HasAPIKey(provider.ID) {
+			keyState = "key configured"
 		}
 		fmt.Fprintf(&b, "%s (%s)\n", provider.Name, keyState)
 		for _, model := range matched {
@@ -190,13 +198,23 @@ func FormatModelList(search string) string {
 			if model.Reasoning {
 				reasoning = " [reasoning]"
 			}
-			fmt.Fprintf(&b, "  %s/%s%s\n", provider.ID, model.ID, reasoning)
+			vision := ""
+			for _, in := range model.Input {
+				if in == "image" {
+					vision = " [vision]"
+					break
+				}
+			}
+			fmt.Fprintf(&b, "  %s/%s%s%s\n", provider.ID, model.ID, reasoning, vision)
 		}
 		b.WriteString("\n")
 	}
 
-	if b.Len() == 0 {
-		return fmt.Sprintf("No models matching %q\n", search)
+	if !anyProvider {
+		if search != "" {
+			return fmt.Sprintf("No models matching %q\n", search)
+		}
+		return "No models loaded. Configure a provider API key, then re-run --list-models.\n"
 	}
 	return b.String()
 }

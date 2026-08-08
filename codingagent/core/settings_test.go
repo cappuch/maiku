@@ -26,12 +26,14 @@ func TestLoadSettingsMergesProjectOverGlobal(t *testing.T) {
 		"defaultProvider": "anthropic",
 		"defaultModel": "claude-sonnet-4-5",
 		"defaultThinkingLevel": "medium",
+		"reasoning": { "model-a": "high" },
 		"shellPath": "/bin/zsh",
 		"compaction": { "enabled": true, "reserveTokens": 1000, "keepRecentTokens": 2000 },
 		"retry": { "maxRetries": 5, "provider": { "timeoutMs": 1234 } }
 	}`)
 	writeFile(t, ProjectSettingsPath(cwd), `{
 		"defaultModel": "claude-opus-4-5",
+		"reasoning": { "model-b": "low" },
 		"compaction": { "reserveTokens": 4096 },
 		"retry": { "provider": { "maxRetries": 9 } }
 	}`)
@@ -70,6 +72,55 @@ func TestLoadSettingsMergesProjectOverGlobal(t *testing.T) {
 	}
 	if got := settings.Retry.Provider.MaxRetries; got == nil || *got != 9 {
 		t.Errorf("retry.provider.maxRetries = %v, want project 9", got)
+	}
+
+	// Per-model reasoning maps merge key-by-key like other nested objects.
+	if level, ok := settings.ThinkingLevelForModel("model-a"); !ok || level != "high" {
+		t.Errorf("model-a reasoning = %q, %v; want high, true", level, ok)
+	}
+	if level, ok := settings.ThinkingLevelForModel("model-b"); !ok || level != "low" {
+		t.Errorf("model-b reasoning = %q, %v; want low, true", level, ok)
+	}
+}
+
+func TestSetModelThinkingLevelPersistsPerModel(t *testing.T) {
+	agentDir := t.TempDir()
+	if err := SetModelThinkingLevel(agentDir, "model-a", "high"); err != nil {
+		t.Fatal(err)
+	}
+	// Writing a second model must not clobber the first, and re-writing one
+	// model must not affect the others.
+	if err := SetModelThinkingLevel(agentDir, "model-b", "low"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetModelThinkingLevel(agentDir, "model-b", "max"); err != nil {
+		t.Fatal(err)
+	}
+
+	result := LoadSettings(t.TempDir(), agentDir)
+	if level, ok := result.Settings.ThinkingLevelForModel("model-a"); !ok || level != "high" {
+		t.Errorf("model-a reasoning = %q, %v; want high, true", level, ok)
+	}
+	if level, ok := result.Settings.ThinkingLevelForModel("model-b"); !ok || level != "max" {
+		t.Errorf("model-b reasoning = %q, %v; want max, true", level, ok)
+	}
+	if _, ok := result.Settings.ThinkingLevelForModel("unknown"); ok {
+		t.Error("unknown model should have no saved reasoning level")
+	}
+	if _, ok := result.Settings.ThinkingLevelForModel(""); ok {
+		t.Error("empty model id should have no saved reasoning level")
+	}
+
+	// An empty level removes the entry, leaving the others intact.
+	if err := SetModelThinkingLevel(agentDir, "model-a", ""); err != nil {
+		t.Fatal(err)
+	}
+	result = LoadSettings(t.TempDir(), agentDir)
+	if _, ok := result.Settings.ThinkingLevelForModel("model-a"); ok {
+		t.Error("cleared model-a reasoning should be gone")
+	}
+	if level, ok := result.Settings.ThinkingLevelForModel("model-b"); !ok || level != "max" {
+		t.Errorf("model-b reasoning = %q, %v; want max, true", level, ok)
 	}
 }
 

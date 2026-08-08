@@ -1,6 +1,6 @@
 # maiku
 
-Lightweight coding agent in Go — a thinner take on [pi](https://github.com/earendil-works/pi), without the interactive TUI or plugin system.
+insanely lightweight, efficient; a thinner take on [pi](https://github.com/earendil-works/pi), ported to golang, and optimized the fuck out of it
 
 ## Build
 
@@ -29,8 +29,6 @@ cd desktop && wails dev
 # or:
 open desktop/build/bin/maiku.app
 ```
-
-Collapsible sessions sidebar, streaming tokens, tool calls, model selector, API key settings, open folder, status bar (tokens / cache rate / cost).
 
 ## Config
 

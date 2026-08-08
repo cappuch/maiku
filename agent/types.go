@@ -66,19 +66,19 @@ type AgentToolCall = ai.ToolCall
 // AgentToolResult is the final or partial result produced by a tool.
 type AgentToolResult struct {
 	// Content is the text/image content returned to the model.
-	Content []ai.ToolResultContent
+	Content []ai.ToolResultContent `json:"content"`
 	// Details holds arbitrary structured details for logs or UI rendering.
-	Details any
+	Details any `json:"details,omitempty"`
 	// Usage is usage from the final tool execution itself, if available.
 	// Not used for main LLM context accounting.
-	Usage *ai.Usage
+	Usage *ai.Usage `json:"usage,omitempty"`
 	// AddedToolNames lists names of tools introduced by this result and
 	// available from this transcript point onward.
-	AddedToolNames []string
+	AddedToolNames []string `json:"addedToolNames,omitempty"`
 	// Terminate hints that the agent should stop after the current tool
 	// batch. Early termination only happens when every finalized tool
 	// result in the batch sets this to true.
-	Terminate bool
+	Terminate bool `json:"terminate,omitempty"`
 }
 
 // AgentToolUpdateCallback streams partial execution updates from a tool.

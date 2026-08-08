@@ -34,13 +34,13 @@ var editSchema = []byte(`{
 // EditToolDetails mirrors TS EditToolDetails.
 type EditToolDetails struct {
 	// Diff is a display-oriented diff of the changes made.
-	Diff string
+	Diff string `json:"diff"`
 	// Patch is a standard unified patch of the changes made.
-	Patch string
+	Patch string `json:"patch"`
 	// FirstChangedLine is the line number of the first change in the new
 	// file (for editor navigation). 0 means "no changes" (should not occur
 	// on success).
-	FirstChangedLine int
+	FirstChangedLine int `json:"firstChangedLine"`
 }
 
 // prepareEditArguments mirrors TS prepareEditArguments: some models send

@@ -22,14 +22,12 @@ desktop/build/
 .maiku/
 *.log
 
-# Node / TypeScript frontend (exclude the "typescript shit")
+# Node / TypeScript frontend - track source and package files; ignore dependencies and build artifacts
 desktop/frontend/node_modules/
 desktop/frontend/dist/
-desktop/frontend/src/
-desktop/frontend/package-lock.json
-desktop/frontend/package.json.md5
 desktop/frontend/.vite/
 desktop/frontend/.cache/
+desktop/frontend/package-lock.json
 
 # Optional: ignore local env files
 *.env
