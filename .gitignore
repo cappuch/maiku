@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# Binary and build artifacts
+maiku
+bin/
+build/
+desktop/build/
+
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+/vendor/
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# maiku runtime / sessions
+.maiku/
+*.log
+
+# Node / TypeScript frontend (exclude the "typescript shit")
+desktop/frontend/node_modules/
+desktop/frontend/dist/
+desktop/frontend/src/
+desktop/frontend/package-lock.json
+desktop/frontend/package.json.md5
+desktop/frontend/.vite/
+desktop/frontend/.cache/
+
+# Optional: ignore local env files
+*.env
+
+# Ignore compiled desktop app bundles
+desktop/build/
