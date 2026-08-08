@@ -47,6 +47,16 @@
   vertical-align: middle;
 }
 
+/* Wails v2.13 drag regions — driven by the --wails-draggable CSS property.
+   Custom properties inherit, so marking the header drag and interactive
+   children no-drag keeps controls clickable while the grey title bar drags. */
+[data-wails-drag] {
+  --wails-draggable: drag;
+}
+[data-wails-no-drag] {
+  --wails-draggable: none;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

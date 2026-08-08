@@ -40,6 +40,7 @@ export function ModelSelector({
     <div className="relative flex items-center gap-2">
       <select
         value={thinking}
+        data-wails-no-drag
         onChange={(e) => onSetThinking(e.target.value)}
         className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel-2)] px-2 py-1 text-xs text-[var(--color-muted)] outline-none"
         title="Thinking level"
@@ -53,6 +54,7 @@ export function ModelSelector({
 
       <button
         type="button"
+        data-wails-no-drag
         onClick={() => setOpen((v) => !v)}
         className="flex max-w-[280px] items-center gap-1 rounded-md border border-[var(--color-line)] bg-[var(--color-panel-2)] px-2 py-1 text-xs hover:border-[var(--color-accent-dim)]"
       >
@@ -62,8 +64,11 @@ export function ModelSelector({
 
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] shadow-xl">
+          <div data-wails-no-drag className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            data-wails-no-drag
+            className="absolute right-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] shadow-xl"
+          >
             <input
               autoFocus
               value={q}

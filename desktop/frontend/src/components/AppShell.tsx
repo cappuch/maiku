@@ -118,8 +118,11 @@ export function AppShell(props: Props) {
   return (
     <div className="flex h-full flex-col bg-[var(--color-ink)] text-[var(--color-text)]">
       {/* Title bar — brand/folder left, model controls right. Vertically centered. */}
-      <header className="titlebar-drag flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] bg-[var(--color-panel)] pr-3 pl-[96px]">
-        <div className="titlebar-no-drag flex min-w-0 items-center gap-1.5">
+      <header
+        data-wails-drag
+        className="titlebar-drag flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] bg-[var(--color-panel)] pr-3 pl-[96px]"
+      >
+        <div className="titlebar-no-drag flex min-w-0 items-center gap-1.5" data-wails-no-drag>
           <div className="relative min-w-0">
             <button
               type="button"
@@ -191,7 +194,7 @@ export function AppShell(props: Props) {
             )}
           </div>
         </div>
-        <div className="titlebar-no-drag flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <ModelSelector
             models={models}
             provider={state.provider}
@@ -202,6 +205,7 @@ export function AppShell(props: Props) {
           />
           <button
             type="button"
+            data-wails-no-drag
             onClick={props.onToggleSettings}
             className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"
             title="Settings"
@@ -358,6 +362,7 @@ export function AppShell(props: Props) {
             }}
           />
           <div
+            data-wails-no-drag
             className="titlebar-no-drag fixed z-50 w-44 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-xl"
             style={{ left: ctxMenu.x, top: ctxMenu.y }}
           >
