@@ -26,7 +26,7 @@ func SelectTools(cwd string, allow []string, exclude []string, disableAll bool) 
 	names := allow
 	if len(names) == 0 {
 		// Default active set matches TypeScript createCodingTools.
-		names = []string{"read", "bash", "edit", "write"}
+		names = []string{"read", "bash", "edit", "write", "miru"}
 		if len(allow) == 0 {
 			// When caller passes explicit --tools that includes optional ones,
 			// CreateBuiltinTools handles the name list; here we expand defaults

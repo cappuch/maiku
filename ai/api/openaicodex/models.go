@@ -37,11 +37,15 @@ func StaticModels() []ai.Model {
 		}}
 	}
 	return []ai.Model{
-		mk("gpt-5.2", "GPT-5.2", nil, c(1.75, 14, 0.175), 0, 0),
-		mk("gpt-5.3-codex", "GPT-5.3 Codex", nil, c(1.75, 14, 0.175), 0, 0),
 		mk("gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", []string{"text"}, c(0, 0, 0), 128000, 128000),
-		mk("gpt-5.4", "GPT-5.4", nil, c(2.5, 15, 0.25), 0, 0),
-		mk("gpt-5.4-mini", "GPT-5.4 Mini", nil, c(0.75, 4.5, 0.075), 0, 0),
-		mk("gpt-5.5", "GPT-5.5", nil, c(5, 30, 0.5), 0, 0),
+
+		mk("gpt-5.4", "GPT-5.4", nil, c(2.5, 15, 0.25), 1050000, 128000),
+		mk("gpt-5.4-mini", "GPT-5.4 Mini", nil, c(0.75, 4.5, 0.075), 400000, 128000),
+
+		mk("gpt-5.5", "GPT-5.5", nil, c(5, 30, 0.5), 1050000, 128000),
+
+		mk("gpt-5.6-sol", "GPT-5.6 Sol", nil, c(5, 30, 0.5), 1050000, 128000),
+		mk("gpt-5.6-terra", "GPT-5.6 Terra", nil, c(2, 12, 0.2), 1050000, 128000),
+		mk("gpt-5.6-luna", "GPT-5.6 Luna", nil, c(0.2, 1.2, 0.02), 1050000, 128000),
 	}
 }

@@ -12,6 +12,7 @@ func TestBuiltinToolSchemasValidate(t *testing.T) {
 		"bash":  {"command": "echo hi"},
 		"edit":  {"path": "main.go", "edits": []any{map[string]any{"oldText": "a", "newText": "b"}}},
 		"write": {"path": "main.go", "content": "hi"},
+		"miru":  {"query": "authentication flow"},
 	}
 
 	tools := BuiltinTools(t.TempDir())

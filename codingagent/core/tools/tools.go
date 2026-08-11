@@ -13,11 +13,11 @@ const (
 	ToolGrep  ToolName = "grep"
 	ToolFind  ToolName = "find"
 	ToolLs    ToolName = "ls"
+	ToolMiru  ToolName = "miru"
 )
 
-// DefaultToolNames are the tools included in coding-agent's default toolset
-// (mirrors TS createCodingTools: read, bash, edit, write).
-var DefaultToolNames = []string{string(ToolRead), string(ToolBash), string(ToolEdit), string(ToolWrite)}
+// DefaultToolNames are the tools included in coding-agent's default toolset.
+var DefaultToolNames = []string{string(ToolRead), string(ToolBash), string(ToolEdit), string(ToolWrite), string(ToolMiru)}
 
 func createBuiltinTool(name string, cwd string) *agent.AgentTool {
 	switch ToolName(name) {
@@ -35,6 +35,8 @@ func createBuiltinTool(name string, cwd string) *agent.AgentTool {
 		return CreateFindTool(cwd)
 	case ToolLs:
 		return CreateLsTool(cwd)
+	case ToolMiru:
+		return CreateMiruTool(cwd)
 	default:
 		return nil
 	}

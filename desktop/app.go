@@ -18,8 +18,8 @@ import (
 	"github.com/mikus/maiku/ai"
 	_ "github.com/mikus/maiku/ai/api/anthropic"
 	_ "github.com/mikus/maiku/ai/api/google"
-	_ "github.com/mikus/maiku/ai/api/openaicompletions"
 	_ "github.com/mikus/maiku/ai/api/openaicodex"
+	_ "github.com/mikus/maiku/ai/api/openaicompletions"
 	_ "github.com/mikus/maiku/ai/api/openairesponses"
 	"github.com/mikus/maiku/ai/auth"
 	openaicodexoauth "github.com/mikus/maiku/ai/auth/openaicodex"
@@ -63,34 +63,34 @@ type App struct {
 
 // UsageTotals is the cumulative token/cost accounting for the open session.
 type UsageTotals struct {
-	Input      int     `json:"input"`
-	Output     int     `json:"output"`
-	CacheRead  int     `json:"cacheRead"`
-	CacheWrite int     `json:"cacheWrite"`
-	TotalTokens int    `json:"totalTokens"`
-	Cost       float64 `json:"cost"`
-	CacheRate  float64 `json:"cacheRate"`
+	Input       int     `json:"input"`
+	Output      int     `json:"output"`
+	CacheRead   int     `json:"cacheRead"`
+	CacheWrite  int     `json:"cacheWrite"`
+	TotalTokens int     `json:"totalTokens"`
+	Cost        float64 `json:"cost"`
+	CacheRate   float64 `json:"cacheRate"`
 }
 
 // AppState is returned by GetState.
 type AppState struct {
-	Cwd                 string       `json:"cwd"`
-	FolderName          string       `json:"folderName"`
-	UserName            string       `json:"userName"`
-	Provider            string       `json:"provider"`
-	ModelID             string       `json:"modelId"`
-	ModelName           string       `json:"modelName"`
-	Thinking            string       `json:"thinking"`
-	Streaming           bool         `json:"streaming"`
-	SessionID           string       `json:"sessionId"`
-	SessionPath         string       `json:"sessionPath"`
-	Usage               UsageTotals  `json:"usage"`
-	HasAPIKey           bool         `json:"hasApiKey"`
-	Messages            []UIMessage  `json:"messages"`
-	RecentDirs          []string     `json:"recentDirs"`
-	StreamingSessionIDs []string     `json:"streamingSessionIds"`
-	StreamText          string       `json:"streamText"`
-	StreamThinking      string       `json:"streamThinking"`
+	Cwd                 string      `json:"cwd"`
+	FolderName          string      `json:"folderName"`
+	UserName            string      `json:"userName"`
+	Provider            string      `json:"provider"`
+	ModelID             string      `json:"modelId"`
+	ModelName           string      `json:"modelName"`
+	Thinking            string      `json:"thinking"`
+	Streaming           bool        `json:"streaming"`
+	SessionID           string      `json:"sessionId"`
+	SessionPath         string      `json:"sessionPath"`
+	Usage               UsageTotals `json:"usage"`
+	HasAPIKey           bool        `json:"hasApiKey"`
+	Messages            []UIMessage `json:"messages"`
+	RecentDirs          []string    `json:"recentDirs"`
+	StreamingSessionIDs []string    `json:"streamingSessionIds"`
+	StreamText          string      `json:"streamText"`
+	StreamThinking      string      `json:"streamThinking"`
 }
 
 // UIMessage is a frontend-friendly transcript entry.
@@ -356,10 +356,10 @@ func (a *App) focusNewLocked(mgr *core.SessionManager) error {
 	_ = mgr.EnsurePersisted()
 	id := mgr.Header().ID
 
-		if _, ok := a.live[id]; ok {
-			a.activeID = id
-			return nil
-		}
+	if _, ok := a.live[id]; ok {
+		a.activeID = id
+		return nil
+	}
 
 	live, err := a.createLiveSessionLocked(mgr)
 	if err != nil {
@@ -1075,6 +1075,19 @@ func (a *App) ListAPIKeys() []APIKeyStatus {
 					status.Source = "file"
 				}
 			}
+		}
+		out = append(out, status)
+	}
+	// Miru is a native coding-agent service rather than an LLM model
+	// provider, but it uses the same credential store and settings UI.
+	if !seen["miru"] {
+		status := APIKeyStatus{Provider: "miru", Name: "Miru Code Search"}
+		if auth.FindEnvVar("miru") != "" {
+			status.HasKey = true
+			status.Source = "env"
+		} else if store.APIKey("miru") != "" {
+			status.HasKey = true
+			status.Source = "file"
 		}
 		out = append(out, status)
 	}
