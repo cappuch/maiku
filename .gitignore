@@ -3,6 +3,9 @@
 
 # Binary and build artifacts
 maiku
+!cmd/
+!cmd/maiku/
+!cmd/maiku/*.go
 bin/
 build/
 desktop/build/
