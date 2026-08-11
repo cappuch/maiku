@@ -261,6 +261,81 @@ func readSessionFile(path string) (SessionHeader, []SessionEntry, error) {
 	return header, entries, nil
 }
 
+// PruneEmptySessions deletes session JSONL files under dir (and one level of
+// cwd-scoped subdirectories, matching ListSessionSummaries) that contain no
+// message entries. Paths in keep are never touched (e.g. live sessions). It
+// returns the number of files removed.
+func PruneEmptySessions(dir string, keep map[string]bool) int {
+	removed := 0
+	var walk func(d string, recurse bool)
+	walk = func(d string, recurse bool) {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			full := filepath.Join(d, e.Name())
+			if e.IsDir() {
+				if recurse {
+					walk(full, false)
+				}
+				continue
+			}
+			if !strings.HasSuffix(e.Name(), ".jsonl") {
+				continue
+			}
+			if keep[full] {
+				continue
+			}
+			if !sessionIsEmpty(full) {
+				continue
+			}
+			if err := os.Remove(full); err == nil {
+				removed++
+			}
+		}
+	}
+	walk(dir, true)
+	return removed
+}
+
+// sessionIsEmpty reports whether path is a session file with a valid header
+// but no message entries. Scanning stops at the first message so populated
+// sessions are cheap to skip.
+func sessionIsEmpty(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	hasHeader := false
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var probe struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(line), &probe); err != nil {
+			continue
+		}
+		switch probe.Type {
+		case "session":
+			var header SessionHeader
+			if err := json.Unmarshal([]byte(line), &header); err == nil && header.ID != "" {
+				hasHeader = true
+			}
+		case "message":
+			return false
+		}
+	}
+	return hasHeader
+}
+
 func readSessionHeader(path string) (SessionHeader, error) {
 	file, err := os.Open(path)
 	if err != nil {

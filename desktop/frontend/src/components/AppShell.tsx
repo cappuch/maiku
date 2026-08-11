@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   Check,
   ChevronDown,
@@ -19,8 +19,10 @@ import type {
   UIMessage,
   UsageTotals,
 } from "../types";
-import { cn, formatCacheRate, formatCost, formatTokens } from "../lib/utils";
+import { cn, formatCacheRate, formatCost, formatTokens, greetingFor } from "../lib/utils";
 import { ModelSelector } from "./ModelSelector";
+import { ClickAway } from "./ClickAway";
+import { useClickAway } from "./useClickAway";
 import { SettingsDialog, type CodexLoginHandlers } from "./SettingsDialog";
 import { Transcript } from "./Transcript";
 import { Composer } from "./Composer";
@@ -84,9 +86,17 @@ export function AppShell(props: Props) {
     [streamingSessionIds],
   );
 
+  // Personalized empty-state greeting — computed once per user, so the random
+  // variant doesn't flicker across re-renders.
+  const greeting = useMemo(() => greetingFor(state.userName), [state.userName]);
+
   const [dirMenuOpen, setDirMenuOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const [editingPath, setEditingPath] = useState<string | null>(null);
+  const dirMenuRef = useRef<HTMLDivElement>(null);
+
+  // Clicking anywhere outside the folder menu closes it.
+  useClickAway(dirMenuOpen, dirMenuRef, () => setDirMenuOpen(false));
 
   // Close popovers on Escape.
   useEffect(() => {
@@ -129,11 +139,11 @@ export function AppShell(props: Props) {
   };
 
   return (
-    <div className="flex h-full flex-col bg-[var(--color-ink)] text-[var(--color-text)]">
+    <div className="app-shell flex h-full flex-col bg-[var(--color-ink)] text-[var(--color-text)]">
       {/* Title bar — brand/folder left, model controls right. Vertically centered. */}
       <header
         data-wails-drag
-        className="titlebar-drag flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-panel)_88%,transparent)] pr-3 pl-[96px] backdrop-blur-xl"
+        className="titlebar-drag relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] pr-3 pl-[96px]"
       >
         <div className="titlebar-no-drag flex min-w-0 items-center gap-1.5" data-wails-no-drag>
           <div className="relative min-w-0">
@@ -162,9 +172,10 @@ export function AppShell(props: Props) {
               />
             </button>
             {dirMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setDirMenuOpen(false)} />
-                <div className="titlebar-no-drag absolute left-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-xl">
+              <div
+                ref={dirMenuRef}
+                className="titlebar-no-drag absolute left-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-xl"
+              >
                   <p className="px-3 pt-1.5 pb-1 text-[10px] font-medium tracking-wide text-[var(--color-muted)]">
                     Recent folders
                   </p>
@@ -203,7 +214,6 @@ export function AppShell(props: Props) {
                     );
                   })}
                 </div>
-              </>
             )}
           </div>
         </div>
@@ -232,12 +242,12 @@ export function AppShell(props: Props) {
         {/* Sidebar — toggle pinned to the outer (left) edge; actions only when open. */}
         <aside
           className={cn(
-            "flex shrink-0 flex-col overflow-hidden border-r border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-panel)_88%,transparent)] transition-[width] duration-200",
+            "app-sidebar flex shrink-0 flex-col overflow-hidden border-r border-[var(--color-line)] transition-[width] duration-200",
             sidebarOpen ? "w-64" : "w-12",
           )}
         >
           {/* Toggle row is always left-anchored so the collapse button stays in place. */}
-          <div className="flex shrink-0 items-center gap-1 border-b border-[var(--color-line)] p-2">
+          <div className="flex shrink-0 items-center gap-1 border-b border-[var(--color-line)] px-2 py-2.5">
             <IconBtn
               title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
               onClick={props.onToggleSidebar}
@@ -272,7 +282,7 @@ export function AppShell(props: Props) {
                     key={s.path}
                     className={cn(
                       "mb-1 w-full rounded-lg transition-colors",
-                      active && "bg-[var(--color-panel-2)] shadow-[inset_0_1px_rgba(255,255,255,.04)] ring-1 ring-[var(--color-line)]",
+                      active && "bg-[var(--color-panel-2)] shadow-[inset_0_1px_rgba(255,255,255,.06)] ring-1 ring-[var(--color-line)]",
                       isStreaming && "session-streaming",
                     )}
                     onContextMenu={(e) => openCtxMenu(e, s.path)}
@@ -345,6 +355,7 @@ export function AppShell(props: Props) {
             streamThinking={streamThinking}
             thinkingStartedAt={thinkingStartedAt}
             streaming={streaming}
+            greeting={greeting}
           />
 
           <Composer
@@ -357,7 +368,7 @@ export function AppShell(props: Props) {
       </div>
 
       {/* Status bar */}
-      <footer className="flex h-8 shrink-0 items-center gap-4 border-t border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-panel)_88%,transparent)] px-3 font-mono text-[11px] text-[var(--color-muted)] backdrop-blur-xl">
+      <footer className="status-bar relative z-20 flex h-8 shrink-0 items-center gap-4 border-t border-[var(--color-line)] px-3 font-mono text-[11px] text-[var(--color-muted)]">
         <Stat label="in" value={formatTokens(usage.input)} />
         <Stat label="out" value={formatTokens(usage.output)} />
         <Stat label="cache" value={formatCacheRate(usage.cacheRate)} accent />
@@ -375,9 +386,8 @@ export function AppShell(props: Props) {
 
       {ctxMenu && (
         <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setCtxMenu(null)}
+          <ClickAway
+            onClose={() => setCtxMenu(null)}
             onContextMenu={(e) => {
               e.preventDefault();
               setCtxMenu(null);

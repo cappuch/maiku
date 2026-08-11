@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Sparkles } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Check, ChevronDown, Sparkles } from "lucide-react";
+import { Markdown } from "./Markdown";
 
 const BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -14,54 +15,65 @@ export function ThinkingLive({
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [frame, setFrame] = useState(0);
-  const [expanded, setExpanded] = useState(live);
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
+  const traceRef = useRef<HTMLDivElement>(null);
+  const [traceHeight, setTraceHeight] = useState(0);
 
   useEffect(() => {
     if (!live) return;
     const id = window.setInterval(() => {
       setNow(Date.now());
-      setFrame((f) => (f + 1) % BRAILLE.length);
-    }, 80);
+      setFrame((current) => (current + 1) % BRAILLE.length);
+    }, 100);
     return () => window.clearInterval(id);
   }, [live]);
 
-  const elapsedSec = Math.max(0, Math.floor((now - (startedAt ?? now)) / 1000));
-  // Live mode shows a rolling preview of recent lines; persisted mode keeps
-  // the full reasoning so nothing is lost after the response lands.
-  const lines = useMemo(() => {
-    const all = thinking
-      .split(/\r?\n/)
-      .map((l) => l.trimEnd())
-      .filter((l) => l.trim() !== "");
-    return live ? all.slice(-4) : all;
-  }, [thinking, live]);
+  const elapsedSec = Math.max(1, Math.floor((now - (startedAt ?? now)) / 1000));
+  const expanded = manualExpanded ?? live;
+
+  useLayoutEffect(() => {
+    setTraceHeight(traceRef.current?.offsetHeight ?? 0);
+  }, [thinking, expanded]);
 
   return (
-    <div className="thinking-card">
+    <section className="thinking-trace-card">
       <button
         type="button"
         aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => setManualExpanded((current) => !(current ?? live))}
         className="thinking-header"
       >
-        <span className="thinking-spark"><Sparkles size={13} fill="currentColor" /></span>
-        <span className="thinking-title">Thinking</span>
-        {live && (
-          <span className="thinking-time"><span aria-hidden>{BRAILLE[frame]}</span> {elapsedSec}s</span>
+        <Sparkles size={15} fill={live ? "currentColor" : "none"} className="thinking-spark" />
+        {live ? (
+          <span className="thinking-title thinking-active">Thinking</span>
+        ) : (
+          <span className="thinking-title">Thought through the task</span>
         )}
+        {live && (
+          <span className="thinking-time">
+            <span aria-hidden>{BRAILLE[frame]}</span> {elapsedSec}s
+          </span>
+        )}
+        {!live && <Check size={13} className="thinking-done" />}
         <ChevronDown size={14} className={expanded ? "thinking-chevron open" : "thinking-chevron"} />
       </button>
+
       {expanded && (
-        <div className="thinking-trace">
-          {lines.length > 0 ? lines.map((line, i) => (
-            <div key={`${i}-${line.slice(0, 24)}`} className="thinking-line">
-              <span>{line}</span>
+        <div className="thinking-expand expanded">
+          <div className="thinking-expand-inner">
+            <div className="thinking-rail" style={{ height: traceHeight ? `${traceHeight - 6}px` : 0 }} />
+            <div ref={traceRef} className="thinking-lines">
+              {thinking.trim() ? (
+                <div className="thinking-markdown">
+                  <Markdown content={thinking} />
+                </div>
+              ) : (
+                <p className="thinking-line">Gathering context and mapping the task…</p>
+              )}
             </div>
-          )) : (
-            <div className="thinking-line"><span>Gathering context…</span></div>
-          )}
+          </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

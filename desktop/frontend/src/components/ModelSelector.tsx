@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown } from "lucide-react";
 import type { ModelInfo } from "../types";
 import { cn } from "../lib/utils";
+import { useClickAway } from "./useClickAway";
 
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -20,8 +21,32 @@ export function ModelSelector({
   onSetModel: (provider: string, id: string) => void;
   onSetThinking: (level: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [thinkOpen, setThinkOpen] = useState(false);
   const [q, setQ] = useState("");
+  const thinkRootRef = useRef<HTMLDivElement>(null);
+  const modelRootRef = useRef<HTMLDivElement>(null);
+
+  const closeAll = () => {
+    setModelOpen(false);
+    setThinkOpen(false);
+    setQ("");
+  };
+
+  // Clicking anywhere outside a dropdown closes it.
+  useClickAway(thinkOpen, thinkRootRef, () => setThinkOpen(false));
+  useClickAway(modelOpen, modelRootRef, closeAll);
+
+  // Close dropdowns on Escape.
+  useEffect(() => {
+    if (!modelOpen && !thinkOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      closeAll();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modelOpen, thinkOpen]);
 
   const filtered = useMemo(() => {
     const lower = q.toLowerCase();
@@ -38,33 +63,92 @@ export function ModelSelector({
 
   return (
     <div className="relative flex items-center gap-2">
-      <select
-        value={thinking}
-        data-wails-no-drag
-        onChange={(e) => onSetThinking(e.target.value)}
-        className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel-2)] px-2 py-1 text-xs text-[var(--color-muted)] outline-none"
-        title="Thinking level"
-      >
-        {THINKING.map((t) => (
-          <option key={t} value={t}>
-            think:{t}
-          </option>
-        ))}
-      </select>
+      {/* Thinking level */}
+      <div ref={thinkRootRef} className="relative flex items-center">
+        <button
+          type="button"
+          data-wails-no-drag
+          onClick={() => {
+            setModelOpen(false);
+            setThinkOpen((v) => !v);
+          }}
+          className={cn(
+            "flex items-center gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-panel-2)] px-2 py-1 text-xs text-[var(--color-muted)] hover:border-[var(--color-accent-dim)]",
+            thinkOpen && "border-[var(--color-accent-dim)]",
+          )}
+          title="Thinking level"
+        >
+          <span className="font-mono">think:{thinking}</span>
+          <ChevronDown
+            size={12}
+            className={cn(
+              "shrink-0 text-[var(--color-muted)] transition-transform",
+              thinkOpen && "rotate-180",
+            )}
+          />
+        </button>
 
-      <button
-        type="button"
-        data-wails-no-drag
-        onClick={() => setOpen((v) => !v)}
-        className="flex max-w-[280px] items-center gap-1 rounded-md border border-[var(--color-line)] bg-[var(--color-panel-2)] px-2 py-1 text-xs hover:border-[var(--color-accent-dim)]"
-      >
-        <span className="truncate font-mono">{label}</span>
-        <ChevronDown size={12} className="shrink-0 text-[var(--color-muted)]" />
-      </button>
+        {thinkOpen && (
+          <div
+            data-wails-no-drag
+            className="absolute right-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-xl"
+          >
+            {THINKING.map((t) => {
+              const active = t === thinking;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => {
+                    onSetThinking(t);
+                    setThinkOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--color-panel-2)]",
+                    active && "bg-[var(--color-panel-2)]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "font-mono",
+                      active ? "text-[var(--color-text)]" : "text-[var(--color-muted)]",
+                    )}
+                  >
+                    think:{t}
+                  </span>
+                  {active && <Check size={13} className="shrink-0 text-[var(--color-accent)]" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-      {open && (
-        <>
-          <div data-wails-no-drag className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+      {/* Model picker */}
+      <div ref={modelRootRef} className="relative flex items-center">
+        <button
+          type="button"
+          data-wails-no-drag
+          onClick={() => {
+            setThinkOpen(false);
+            setModelOpen((v) => !v);
+          }}
+          className={cn(
+            "flex max-w-[280px] items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-panel-2)] px-2.5 py-1.5 text-xs hover:border-[var(--color-accent-dim)]",
+            modelOpen && "border-[var(--color-accent-dim)]",
+          )}
+        >
+          <span className="truncate font-mono">{label}</span>
+          <ChevronDown
+            size={12}
+            className={cn(
+              "shrink-0 text-[var(--color-muted)] transition-transform",
+              modelOpen && "rotate-180",
+            )}
+          />
+        </button>
+
+        {modelOpen && (
           <div
             data-wails-no-drag
             className="absolute right-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] shadow-xl"
@@ -85,8 +169,7 @@ export function ModelSelector({
                     type="button"
                     onClick={() => {
                       onSetModel(m.provider, m.id);
-                      setOpen(false);
-                      setQ("");
+                      closeAll();
                     }}
                     className={cn(
                       "flex w-full flex-col px-3 py-2 text-left text-xs hover:bg-[var(--color-panel-2)]",
@@ -110,8 +193,8 @@ export function ModelSelector({
               )}
             </div>
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }

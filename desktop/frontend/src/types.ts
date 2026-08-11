@@ -46,6 +46,7 @@ export type UIMessage = {
 export type AppState = {
   cwd: string;
   folderName: string;
+  userName: string;
   provider: string;
   modelId: string;
   modelName: string;

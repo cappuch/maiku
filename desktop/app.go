@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -75,6 +76,7 @@ type UsageTotals struct {
 type AppState struct {
 	Cwd                 string       `json:"cwd"`
 	FolderName          string       `json:"folderName"`
+	UserName            string       `json:"userName"`
 	Provider            string       `json:"provider"`
 	ModelID             string       `json:"modelId"`
 	ModelName           string       `json:"modelName"`
@@ -224,6 +226,9 @@ func (a *App) startup(ctx context.Context) {
 			a.mu.Unlock()
 		}
 	}
+	a.mu.Lock()
+	a.pruneEmptySessionsLocked()
+	a.mu.Unlock()
 	_ = a.ensureSession()
 }
 
@@ -820,6 +825,7 @@ func (a *App) GetState() AppState {
 	return AppState{
 		Cwd:                 a.cwd,
 		FolderName:          folder,
+		UserName:            osUserName(),
 		Provider:            a.model.Provider,
 		ModelID:             a.model.ID,
 		ModelName:           a.model.Name,
@@ -943,9 +949,30 @@ func (a *App) OpenRecentFolder(path string) error {
 	return a.focusNewLocked(core.NewSessionManager(path, dir, true))
 }
 
+// pruneEmptySessionsLocked deletes persisted session files that contain no
+// messages, so abandoned blank sessions don't accumulate. Live sessions
+// (including the focused one) are kept; they're pruned once abandoned or on
+// the next launch if never used.
+func (a *App) pruneEmptySessionsLocked() {
+	root := codingagent.GetSessionsDir()
+	keep := map[string]bool{}
+	for _, live := range a.live {
+		if live != nil && live.mgr != nil {
+			if f := live.mgr.File(); f != "" {
+				keep[f] = true
+			}
+		}
+	}
+	core.PruneEmptySessions(root, keep)
+}
+
 // ListSessions returns session summaries for the sessions root (all workspaces).
+// Empty sessions are pruned first so the sidebar never lists blank entries.
 func (a *App) ListSessions() []core.SessionSummary {
 	root := codingagent.GetSessionsDir()
+	a.mu.Lock()
+	a.pruneEmptySessionsLocked()
+	a.mu.Unlock()
 	return core.ListSessionSummaries(root)
 }
 
@@ -1271,4 +1298,18 @@ func (a *App) Abort() {
 	if session != nil {
 		session.Abort()
 	}
+}
+
+// osUserName returns the current OS user's login name (home folder name),
+// used for the personalized empty-state greeting in the UI.
+func osUserName() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return u.Username
+	}
+	for _, env := range []string{"USER", "USERNAME", "LOGNAME"} {
+		if n := os.Getenv(env); n != "" {
+			return n
+		}
+	}
+	return ""
 }

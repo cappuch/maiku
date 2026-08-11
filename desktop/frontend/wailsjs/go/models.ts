@@ -140,6 +140,7 @@ export namespace main {
 	export class AppState {
 	    cwd: string;
 	    folderName: string;
+	    userName: string;
 	    provider: string;
 	    modelId: string;
 	    modelName: string;
@@ -163,6 +164,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.cwd = source["cwd"];
 	        this.folderName = source["folderName"];
+	        this.userName = source["userName"];
 	        this.provider = source["provider"];
 	        this.modelId = source["modelId"];
 	        this.modelName = source["modelName"];

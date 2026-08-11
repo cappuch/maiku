@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, FilePenLine, FilePlus2, FileText, Wrench } from "lucide-react";
+import { ChevronDown, FilePenLine, FilePlus2, FileText, Terminal } from "lucide-react";
 import type { UIMessage } from "../types";
 import { cn } from "../lib/utils";
 
@@ -27,12 +27,8 @@ function ReadCard({ message, path }: { message: UIMessage; path: string }) {
   return (
     <ToolShell
       icon={<FileText size={13} className="text-[var(--color-accent)]" />}
-      title={
-        <>
-          <span className="text-[var(--color-muted)]">read</span>{" "}
-          <span className="font-mono text-[var(--color-text)]">{path}</span>
-        </>
-      }
+      label="Read"
+      chip={path}
       streaming={message.streaming}
       isError={message.isError}
       open={open}
@@ -66,17 +62,8 @@ function WriteCard({ message, path }: { message: UIMessage; path: string }) {
   return (
     <ToolShell
       icon={<FilePlus2 size={13} className="text-[var(--color-accent)]" />}
-      title={
-        <>
-          <span className="text-[var(--color-muted)]">write</span>{" "}
-          <span className="font-mono text-[var(--color-text)]">{path}</span>
-          {lines.length > 0 && (
-            <span className="ml-2 font-mono text-[10px] text-[var(--color-muted)]">
-              {lines.length} line{lines.length === 1 ? "" : "s"}
-            </span>
-          )}
-        </>
-      }
+      label={`Write${lines.length ? ` ${lines.length} lines` : ""}`}
+      chip={path}
       streaming={message.streaming}
       isError={message.isError}
       open={open}
@@ -119,6 +106,11 @@ function EditCard({ message, path }: { message: UIMessage; path: string }) {
   }, [message.details, message.args]);
 
   const [open, setOpen] = useState(!!message.streaming || sides.length > 0);
+  // A removal can still contain unchanged context on the right side after the
+  // diff is paired. If there are no additions at all, a two-column comparison
+  // adds no information: show the removed content in red as one change block.
+  const removalOnly =
+    sides.length > 0 && !sides.some((row) => row.right?.kind === "add");
 
   useEffect(() => {
     if (message.streaming || sides.length > 0) setOpen(true);
@@ -127,12 +119,8 @@ function EditCard({ message, path }: { message: UIMessage; path: string }) {
   return (
     <ToolShell
       icon={<FilePenLine size={13} className="text-[var(--color-accent)]" />}
-      title={
-        <>
-          <span className="text-[var(--color-muted)]">edit</span>{" "}
-          <span className="font-mono text-[var(--color-text)]">{path}</span>
-        </>
-      }
+      label="Edit"
+      chip={path}
       streaming={message.streaming}
       isError={message.isError}
       open={open}
@@ -143,6 +131,25 @@ function EditCard({ message, path }: { message: UIMessage; path: string }) {
           {sides.length === 0 ? (
             <div className="px-3 py-2 font-mono text-[11px] text-[var(--color-muted)]">
               {message.streaming ? "preparing diff…" : message.text || "no changes"}
+            </div>
+          ) : removalOnly ? (
+            <div className="max-h-72 overflow-auto font-mono text-[11px] leading-[1.45]">
+              {sides.map((row, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "flex min-h-[1.45em]",
+                    row.left?.kind === "del"
+                      ? "bg-[color-mix(in_srgb,var(--color-danger)_14%,transparent)] text-[var(--color-danger)]"
+                      : "text-[var(--color-muted)]",
+                  )}
+                >
+                  <span className="w-8 shrink-0 select-none px-1 text-right opacity-50">
+                    {row.left?.lineNum ?? ""}
+                  </span>
+                  <span className="flex-1 whitespace-pre-wrap break-all pr-2">{row.left?.text ?? " "}</span>
+                </div>
+              ))}
             </div>
           ) : (
             <div className="max-h-72 overflow-auto">
@@ -200,8 +207,9 @@ function GenericToolCard({ message }: { message: UIMessage }) {
 
   return (
     <ToolShell
-      icon={<Wrench size={13} className="text-[var(--color-accent)]" />}
-      title={<span className="font-mono font-medium">{message.toolName || "tool"}</span>}
+      icon={<Terminal size={13} className="text-[var(--color-accent)]" />}
+      label={message.toolName || "Tool"}
+      chip={toolSummary(message.args)}
       streaming={message.streaming}
       isError={message.isError}
       open={open}
@@ -229,7 +237,8 @@ function GenericToolCard({ message }: { message: UIMessage }) {
 
 function ToolShell({
   icon,
-  title,
+  label,
+  chip,
   streaming,
   isError,
   open,
@@ -237,7 +246,8 @@ function ToolShell({
   children,
 }: {
   icon: ReactNode;
-  title: ReactNode;
+  label: ReactNode;
+  chip: ReactNode;
   streaming?: boolean;
   isError?: boolean;
   open: boolean;
@@ -246,34 +256,30 @@ function ToolShell({
 }) {
   const clickable = !!onToggle;
   return (
-    <div
-      className={cn(
-        "tool-shell rounded-xl border border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-panel)_88%,transparent)] shadow-[0_6px_18px_rgba(0,0,0,.09)]",
-        isError && "border-[var(--color-danger)]/40",
-      )}
-    >
+    <div className={cn("tool-shell", isError && "tool-shell-error")}>
       <button
         type="button"
         onClick={onToggle}
         disabled={!clickable}
         className={cn(
-          "flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs hover:bg-[color-mix(in_srgb,white_3%,transparent)]",
+          "tool-row group flex w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs",
           !clickable && "cursor-default",
         )}
       >
         {icon}
-        <span className="min-w-0 flex-1 truncate">{title}</span>
-        {streaming && <span className="text-[var(--color-muted)]">…</span>}
+        <span className="shrink-0 font-medium text-[var(--color-text)]">{label}</span>
+        <span className="tool-chip min-w-0 flex-1 truncate">{chip}</span>
+        {streaming && <span className="tool-working" aria-label="Running">…</span>}
         {isError && <span className="text-[var(--color-danger)]">error</span>}
         {clickable && (
           <ChevronDown
             size={14}
-            className={cn("text-[var(--color-muted)] transition-transform", open && "rotate-180")}
+            className={cn("tool-chevron text-[var(--color-muted)] transition-transform", open && "rotate-180")}
           />
         )}
       </button>
       {open && children ? (
-        <div className="border-t border-[var(--color-line)] px-3 py-2">{children}</div>
+        <div className="tool-detail">{children}</div>
       ) : null}
     </div>
   );
@@ -305,6 +311,17 @@ function toolStringArg(args: unknown, key: string): string {
   if (!a) return "";
   const v = a[key];
   return typeof v === "string" ? v : "";
+}
+
+function toolSummary(args: unknown): string {
+  const object = asArgsObject(args);
+  if (!object) return "Details";
+  const command = object.command ?? object.cmd;
+  if (typeof command === "string") return command;
+  const path = toolPath(args);
+  if (path) return path;
+  const text = object.query ?? object.pattern;
+  return typeof text === "string" ? text : "Details";
 }
 
 function detailsDiff(details: unknown): string {

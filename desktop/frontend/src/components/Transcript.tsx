@@ -4,6 +4,7 @@ import { Markdown } from "./Markdown";
 import { ThinkingLive } from "./ThinkingLive";
 import { ToolCallCard } from "./ToolCallCard";
 import { LoadingGrid } from "./LoadingGrid";
+import { StreamingText } from "./StreamingText";
 
 export function Transcript({
   messages,
@@ -12,6 +13,7 @@ export function Transcript({
   streamThinking,
   thinkingStartedAt,
   streaming,
+  greeting,
 }: {
   messages: UIMessage[];
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -19,6 +21,7 @@ export function Transcript({
   streamThinking?: string;
   thinkingStartedAt?: number | null;
   streaming?: boolean;
+  greeting?: string;
 }) {
   const showStream = !!(streamText && streamText.length > 0);
   // Show the live thinking panel while reasoning is streaming and before
@@ -26,28 +29,13 @@ export function Transcript({
   const showThinking = !!(streamThinking && streamThinking.trim()) && !showStream;
 
   return (
-    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+    <div ref={scrollRef} className="transcript min-h-0 flex-1 overflow-y-auto px-6 py-7">
       {messages.length === 0 && !showThinking && !showStream && !streaming && (
         <div className="empty-state mx-auto mt-[16vh] max-w-xl text-center">
-          <div className="empty-mark" aria-hidden>m</div>
-          <p className="mt-5 text-[15px] font-medium tracking-[-0.01em] text-[var(--color-text)]">
-            What are we making today?
-          </p>
-          <p className="mx-auto mt-2 max-w-sm text-[13px] leading-relaxed text-[var(--color-muted)]">
-            Ask maiku to explore a codebase, ship a change, or help you think through a thorny problem.
-          </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-2">
-            {[
-              "Explain this project",
-              "Find a good first issue",
-              "Review my latest changes",
-            ].map((prompt) => (
-              <span key={prompt} className="prompt-hint">{prompt}</span>
-            ))}
-          </div>
+          <p className="empty-greeting">{greeting || "Hey there"}</p>
         </div>
       )}
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <div className="mx-auto flex max-w-[760px] flex-col gap-5">
         {messages.map((m, i) => (
           <MessageRow
             key={m.toolCallId ? `tool-${m.toolCallId}` : `${m.role}-${i}`}
@@ -60,9 +48,8 @@ export function Transcript({
         {streaming && !showThinking && !showStream && <LoadingGrid />}
         {showStream && (
           <div className="flex justify-start">
-            <div className="max-w-[90%]">
-              <Markdown content={streamText!} />
-              <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-[var(--color-accent)] align-middle" />
+            <div className="assistant-message max-w-[90%]">
+              <StreamingText content={streamText!} />
             </div>
           </div>
         )}
@@ -75,7 +62,7 @@ function MessageRow({ message }: { message: UIMessage }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] space-y-2 rounded-2xl rounded-br-md bg-[var(--color-panel-2)] px-4 py-2.5 text-sm leading-relaxed">
+        <div className="user-message max-w-[85%] space-y-2 px-4 py-2.5 text-sm leading-relaxed">
           {message.images && message.images.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {message.images.map((img, i) => (
@@ -104,7 +91,7 @@ function MessageRow({ message }: { message: UIMessage }) {
         <ThinkingLive thinking={message.thinking} live={false} />
       ) : null}
       <div className="flex justify-start">
-        <div className="max-w-[90%]">
+        <div className="assistant-message max-w-[90%]">
           <Markdown content={message.text || ""} />
           {message.streaming && (
             <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-[var(--color-accent)] align-middle" />

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
-import { Plus, Send, Square, X } from "lucide-react";
+import { AtSign, Command, Paperclip, Send, Square, X } from "lucide-react";
 import { CompletePath, PickFiles } from "../../wailsjs/go/main/App";
 import type { ImageAttachment, PathSuggestion } from "../types";
 
@@ -183,12 +183,12 @@ export function Composer({
   const canSend = (!!value.trim() || attachments.length > 0) && !disabled;
 
   return (
-    <div className="border-t border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-panel)_85%,transparent)] px-4 py-3 backdrop-blur-xl">
-      <div className="relative mx-auto max-w-3xl">
+    <div className="composer-dock relative z-30 px-5 pt-3 pb-4">
+      <div className="relative mx-auto max-w-[760px]">
         {suggestions.length > 0 && (
           <div
             ref={suggestListRef}
-            className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-panel-2)] py-1 shadow-lg"
+            className="composer-suggestions absolute bottom-full left-0 right-0 z-20 mb-2 max-h-52 overflow-y-auto py-1"
           >
             {suggestions.map((s, i) => (
               <button
@@ -201,8 +201,8 @@ export function Composer({
                 className={
                   "flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-xs " +
                   (i === suggestIndex
-                    ? "bg-[var(--color-accent)]/20 text-[var(--color-text)]"
-                    : "text-[var(--color-muted)] hover:bg-[var(--color-ink)]")
+                    ? "bg-[var(--color-accent)]/14 text-[var(--color-text)]"
+                    : "text-[var(--color-muted)] hover:bg-white/[.045]")
                 }
               >
                 <span className="truncate">{s.label}</span>
@@ -212,13 +212,13 @@ export function Composer({
           </div>
         )}
 
-        <div className="rounded-2xl border border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-ink)_92%,black)] shadow-[0_10px_28px_rgba(0,0,0,.16)] transition-[border-color,box-shadow] focus-within:border-[var(--color-accent-dim)] focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_10%,transparent)]">
+        <div className="composer-shell">
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 border-b border-[var(--color-line)] px-3 pt-3 pb-2">
               {attachments.map((att) => (
                 <div
                   key={att.id}
-                  className="group relative h-14 w-14 overflow-hidden rounded-md border border-[var(--color-line)]"
+                  className="group relative h-14 w-14 overflow-hidden rounded-xl border border-[var(--color-line)]"
                 >
                   <img
                     src={`data:${att.mimeType};base64,${att.data}`}
@@ -238,15 +238,15 @@ export function Composer({
             </div>
           )}
 
-          <div className="flex items-end gap-1 px-2 py-2">
+          <div className="flex items-end gap-1.5 px-2.5 pt-2.5 pb-1.5">
             <button
               type="button"
               onClick={onPickFiles}
               disabled={disabled || streaming}
-              className="mb-0.5 rounded-lg p-2 text-[var(--color-muted)] hover:bg-[var(--color-panel)] hover:text-[var(--color-text)] disabled:opacity-40"
+              className="composer-icon-button mb-0.5"
               title="Attach files"
             >
-              <Plus size={16} />
+              <Paperclip size={16} />
             </button>
             <textarea
               ref={ref}
@@ -302,13 +302,13 @@ export function Composer({
                   submit();
                 }
               }}
-              className="max-h-[180px] min-h-[24px] flex-1 resize-none bg-transparent py-1.5 text-sm outline-none placeholder:text-[var(--color-muted)] disabled:opacity-50"
+              className="max-h-[180px] min-h-[28px] flex-1 resize-none bg-transparent py-1.5 text-[14px] leading-6 outline-none placeholder:text-[var(--color-muted)] disabled:opacity-50"
             />
             {streaming ? (
               <button
                 type="button"
                 onClick={onAbort}
-                className="mb-0.5 rounded-lg bg-[var(--color-danger)]/20 p-2 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/30"
+                className="mb-0.5 rounded-xl bg-[var(--color-danger)]/15 p-2.5 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/25"
                 title="Stop"
               >
                 <Square size={14} fill="currentColor" />
@@ -318,12 +318,19 @@ export function Composer({
                 type="button"
                 onClick={submit}
                 disabled={!canSend}
-                className="mb-0.5 rounded-xl bg-[var(--color-accent)] p-2 text-[var(--color-ink)] shadow-[0_2px_10px_color-mix(in_srgb,var(--color-accent)_25%,transparent)] hover:brightness-110 disabled:opacity-40"
+                className="composer-send mb-0.5"
                 title="Send"
               >
                 <Send size={14} />
               </button>
             )}
+          </div>
+          <div className="flex items-center justify-between px-3 pb-2 text-[10px] text-[var(--color-muted)]">
+            <span className="flex items-center gap-2.5">
+              <span className="flex items-center gap-1"><AtSign size={10} /> files</span>
+              <span className="flex items-center gap-1"><Command size={10} /> actions</span>
+            </span>
+            <span>↵ send <span className="opacity-55">·</span> ⇧↵ new line</span>
           </div>
         </div>
       </div>

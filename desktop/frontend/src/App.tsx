@@ -35,6 +35,7 @@ function normalizeState(raw: any): AppState {
   return {
     cwd: raw?.cwd ?? "",
     folderName: raw?.folderName ?? "",
+    userName: raw?.userName ?? "",
     provider: raw?.provider ?? "",
     modelId: raw?.modelId ?? "",
     modelName: raw?.modelName ?? "",
