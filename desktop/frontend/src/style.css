@@ -10,13 +10,13 @@
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
   --color-ink: #121214;
-  --color-panel: #1a1a1e;
+  --color-panel: #19191d;
   --color-panel-2: #222228;
-  --color-line: #2e2e36;
-  --color-muted: #8b8b96;
-  --color-text: #ececf1;
-  --color-accent: #e8a838;
-  --color-accent-dim: #b07a1c;
+  --color-line: #303038;
+  --color-muted: #90909b;
+  --color-text: #f1f0f4;
+  --color-accent: #e5ab4b;
+  --color-accent-dim: #b77c26;
   --color-ok: #5ecf8e;
   --color-danger: #e86a6a;
 }
@@ -35,10 +35,23 @@
 
   body {
     font-family: var(--font-sans);
-    background: var(--color-ink);
+    background: radial-gradient(circle at 68% -20%, #282118 0, #121214 34rem);
     color: var(--color-text);
     -webkit-font-smoothing: antialiased;
   }
+}
+
+button, textarea, input {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+button:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+  outline-offset: 2px;
 }
 
 /* Lucide icons sit on the text baseline by default; force optical center in the title bar. */
@@ -229,4 +242,71 @@
 .md-copy:hover {
   color: var(--color-text);
   border-color: var(--color-accent-dim);
+}
+
+/* Soft pulse for sessions with an in-flight agent run. */
+@keyframes session-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 50%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--color-accent) 40%, transparent);
+  }
+}
+
+.session-streaming {
+  animation: session-glow 1.8s ease-in-out infinite;
+}
+
+/* The live agent surface is deliberately subtle: activity feels present, never noisy. */
+.live-loader {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--color-line) 80%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-panel) 82%, transparent);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .14);
+}
+.pixel-grid { display: grid; grid-template-columns: repeat(3, 4px); gap: 2px; }
+.pixel-grid span {
+  width: 4px; height: 4px; border-radius: 1px; background: var(--color-accent); opacity: .14;
+  animation: pixel-on 650ms ease-in-out infinite;
+}
+.live-loader-label {
+  font-size: 12px; font-weight: 600; letter-spacing: -.01em;
+  color: var(--color-muted); background: linear-gradient(90deg, var(--color-muted) 30%, var(--color-text) 50%, var(--color-muted) 70%);
+  background-size: 200% 100%; background-clip: text; color: transparent; animation: shimmer-text 1.4s linear infinite;
+}
+.live-loader-time { color: var(--color-muted); font: 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.thinking-card {
+  overflow: hidden; border: 1px solid color-mix(in srgb, var(--color-line) 85%, transparent); border-radius: 11px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-panel) 96%, #39290d) 0%, var(--color-panel) 56%);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .12);
+}
+.thinking-header { display: flex; width: 100%; align-items: center; gap: 8px; padding: 9px 11px; color: var(--color-text); text-align: left; }
+.thinking-header:hover { background: color-mix(in srgb, white 4%, transparent); }
+.thinking-spark { color: var(--color-accent); display: inline-flex; }
+.thinking-title { font-size: 12px; font-weight: 650; }
+.thinking-time { margin-left: auto; color: var(--color-muted); font: 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.thinking-time > span { color: var(--color-accent); }
+.thinking-chevron { color: var(--color-muted); transition: transform .22s ease; }
+.thinking-chevron.open { transform: rotate(180deg); }
+.thinking-trace { display: grid; gap: 5px; margin: 0 13px 11px; padding: 2px 0 1px; }
+.thinking-line { color: var(--color-muted); font-size: 11.5px; line-height: 1.45; }
+
+.empty-state { animation: fade-up .5s cubic-bezier(.23,1,.32,1) both; }
+.empty-mark { display: grid; width: 42px; height: 42px; place-items: center; margin: auto; border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-line)); border-radius: 14px; background: linear-gradient(145deg, #2b251d, #1c1b1c); box-shadow: inset 0 1px rgba(255,255,255,.07), 0 10px 32px rgba(0,0,0,.24); color: var(--color-accent); font-size: 21px; font-weight: 700; letter-spacing: -.08em; }
+.prompt-hint { border: 1px solid var(--color-line); border-radius: 999px; padding: 6px 10px; color: var(--color-muted); font-size: 11px; background: color-mix(in srgb, var(--color-panel) 75%, transparent); }
+
+@keyframes pixel-on { 0%, 100% { opacity: .14; transform: scale(.85); } 45% { opacity: 1; transform: scale(1); } }
+@keyframes shimmer-text { to { background-position: -200% 0; } }
+@keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

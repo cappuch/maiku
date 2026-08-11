@@ -35,3 +35,6 @@ desktop/frontend/package-lock.json
 # Ignore compiled desktop app bundles
 desktop/build/
 desktop/maiku-desktop
+
+# Vendored wails fork (macOS title-bar double-click patch)
+desktop/wails/

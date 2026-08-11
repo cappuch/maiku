@@ -19,10 +19,9 @@ import (
 )
 
 const (
-	defaultBaseURL       = "https://api.anthropic.com"
-	anthropicVersion     = "2023-06-01"
-	defaultMaxTokens     = 8192
-	minThinkingAnswerBuf = 1024
+	defaultBaseURL   = "https://api.anthropic.com"
+	anthropicVersion = "2023-06-01"
+	defaultMaxTokens = 8192
 )
 
 func init() {
@@ -414,17 +413,15 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 	}
 
 	if thinkingEnabled {
-		budget := thinkingBudgetFor(opts.Reasoning, opts.ThinkingBudgets)
-		// Leave room for the answer, otherwise the thinking budget can consume
-		// the entire response and starve the final text/tool call.
-		if maxTokens-budget < minThinkingAnswerBuf {
-			budget = maxTokens - minThinkingAnswerBuf
-		}
+		budget := ai.ThinkingBudgetFor(opts.Reasoning, opts.ThinkingBudgets)
 		if budget < 1024 {
 			budget = 1024
-			if maxTokens < budget+minThinkingAnswerBuf {
-				req.MaxTokens = budget + minThinkingAnswerBuf
-			}
+		}
+		// Thinking tokens count against max_tokens — add the budget on top of
+		// the answer allotment so reasoning cannot starve the reply.
+		req.MaxTokens = ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets)
+		if req.MaxTokens < budget+1024 {
+			req.MaxTokens = budget + 1024
 		}
 		req.Thinking = &anthropicThinkingConfig{Type: "enabled", BudgetTokens: budget}
 	} else if model.Reasoning {
@@ -432,41 +429,6 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 	}
 
 	return req, nil
-}
-
-func thinkingBudgetFor(level ai.ThinkingLevel, custom *ai.ThinkingBudgets) int {
-	budgets := map[ai.ThinkingLevel]int{
-		ai.ThinkingMinimal: 1024,
-		ai.ThinkingLow:     2048,
-		ai.ThinkingMedium:  8192,
-		ai.ThinkingHigh:    16384,
-		ai.ThinkingXHigh:   32768,
-		ai.ThinkingMax:     32768,
-	}
-	if custom != nil {
-		if custom.Minimal != nil {
-			budgets[ai.ThinkingMinimal] = *custom.Minimal
-		}
-		if custom.Low != nil {
-			budgets[ai.ThinkingLow] = *custom.Low
-		}
-		if custom.Medium != nil {
-			budgets[ai.ThinkingMedium] = *custom.Medium
-		}
-		if custom.High != nil {
-			budgets[ai.ThinkingHigh] = *custom.High
-			if budgets[ai.ThinkingXHigh] < *custom.High {
-				budgets[ai.ThinkingXHigh] = *custom.High
-			}
-			if budgets[ai.ThinkingMax] < *custom.High {
-				budgets[ai.ThinkingMax] = *custom.High
-			}
-		}
-	}
-	if b, ok := budgets[level]; ok {
-		return b
-	}
-	return budgets[ai.ThinkingMedium]
 }
 
 var toolCallIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]`)

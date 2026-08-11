@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useMemo, useState, type RefObject } from "react";
 import {
   Check,
   ChevronDown,
@@ -33,6 +33,10 @@ type Props = {
   models: ModelInfo[];
   keys: APIKeyStatus[];
   streaming: boolean;
+  streamingSessionIds: string[];
+  streamText: string;
+  streamThinking: string;
+  thinkingStartedAt: number | null;
   tokensPerSec: number;
   sidebarOpen: boolean;
   settingsOpen: boolean;
@@ -64,12 +68,21 @@ export function AppShell(props: Props) {
     models,
     keys,
     streaming,
+    streamingSessionIds,
+    streamText,
+    streamThinking,
+    thinkingStartedAt,
     tokensPerSec,
     sidebarOpen,
     settingsOpen,
     error,
     scrollRef,
   } = props;
+
+  const streamingIdSet = useMemo(
+    () => new Set(streamingSessionIds),
+    [streamingSessionIds],
+  );
 
   const [dirMenuOpen, setDirMenuOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -120,7 +133,7 @@ export function AppShell(props: Props) {
       {/* Title bar — brand/folder left, model controls right. Vertically centered. */}
       <header
         data-wails-drag
-        className="titlebar-drag flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] bg-[var(--color-panel)] pr-3 pl-[96px]"
+        className="titlebar-drag flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-panel)_88%,transparent)] pr-3 pl-[96px] backdrop-blur-xl"
       >
         <div className="titlebar-no-drag flex min-w-0 items-center gap-1.5" data-wails-no-drag>
           <div className="relative min-w-0">
@@ -219,7 +232,7 @@ export function AppShell(props: Props) {
         {/* Sidebar — toggle pinned to the outer (left) edge; actions only when open. */}
         <aside
           className={cn(
-            "flex shrink-0 flex-col overflow-hidden border-r border-[var(--color-line)] bg-[var(--color-panel)] transition-[width] duration-200",
+            "flex shrink-0 flex-col overflow-hidden border-r border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-panel)_88%,transparent)] transition-[width] duration-200",
             sidebarOpen ? "w-64" : "w-12",
           )}
         >
@@ -244,7 +257,7 @@ export function AppShell(props: Props) {
           </div>
           {sidebarOpen && (
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              <p className="mb-2 px-1 text-[10px] font-medium tracking-wide text-[var(--color-muted)]">
+              <p className="mb-2 px-1 text-[10px] font-semibold tracking-[0.12em] text-[var(--color-muted)]">
                 Sessions
               </p>
               {folderSessions.length === 0 && (
@@ -252,13 +265,15 @@ export function AppShell(props: Props) {
               )}
               {folderSessions.map((s) => {
                 const active = s.id === state.sessionId;
+                const isStreaming = streamingIdSet.has(s.id);
                 const editing = editingPath === s.path;
                 return (
                   <div
                     key={s.path}
                     className={cn(
-                      "mb-1 w-full rounded-md transition-colors",
-                      active && "bg-[var(--color-panel-2)] ring-1 ring-[var(--color-line)]",
+                      "mb-1 w-full rounded-lg transition-colors",
+                      active && "bg-[var(--color-panel-2)] shadow-[inset_0_1px_rgba(255,255,255,.04)] ring-1 ring-[var(--color-line)]",
+                      isStreaming && "session-streaming",
                     )}
                     onContextMenu={(e) => openCtxMenu(e, s.path)}
                   >
@@ -287,7 +302,7 @@ export function AppShell(props: Props) {
                       <button
                         type="button"
                         onClick={() => props.onOpenSession(s.path)}
-                        className="flex w-full items-center rounded-md px-2 py-2 text-left transition-colors hover:bg-[var(--color-panel-2)]"
+                        className="flex w-full items-center rounded-lg px-2 py-2 text-left transition-colors hover:bg-[var(--color-panel-2)]"
                         title={s.path}
                       >
                         <span className="min-w-0 flex-1">
@@ -323,7 +338,14 @@ export function AppShell(props: Props) {
             </div>
           )}
 
-          <Transcript messages={messages} scrollRef={scrollRef} />
+          <Transcript
+            messages={messages}
+            scrollRef={scrollRef}
+            streamText={streamText}
+            streamThinking={streamThinking}
+            thinkingStartedAt={thinkingStartedAt}
+            streaming={streaming}
+          />
 
           <Composer
             streaming={streaming}
@@ -335,7 +357,7 @@ export function AppShell(props: Props) {
       </div>
 
       {/* Status bar */}
-      <footer className="flex h-8 shrink-0 items-center gap-4 border-t border-[var(--color-line)] bg-[var(--color-panel)] px-3 font-mono text-[11px] text-[var(--color-muted)]">
+      <footer className="flex h-8 shrink-0 items-center gap-4 border-t border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-panel)_88%,transparent)] px-3 font-mono text-[11px] text-[var(--color-muted)] backdrop-blur-xl">
         <Stat label="in" value={formatTokens(usage.input)} />
         <Stat label="out" value={formatTokens(usage.output)} />
         <Stat label="cache" value={formatCacheRate(usage.cacheRate)} accent />

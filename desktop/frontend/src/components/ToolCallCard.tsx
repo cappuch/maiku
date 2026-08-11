@@ -248,7 +248,7 @@ function ToolShell({
   return (
     <div
       className={cn(
-        "rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)]",
+        "tool-shell rounded-xl border border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-panel)_88%,transparent)] shadow-[0_6px_18px_rgba(0,0,0,.09)]",
         isError && "border-[var(--color-danger)]/40",
       )}
     >
@@ -257,7 +257,7 @@ function ToolShell({
         onClick={onToggle}
         disabled={!clickable}
         className={cn(
-          "flex w-full items-center gap-2 px-3 py-2 text-left text-xs",
+          "flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs hover:bg-[color-mix(in_srgb,white_3%,transparent)]",
           !clickable && "cursor-default",
         )}
       >

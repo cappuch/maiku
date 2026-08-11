@@ -55,6 +55,7 @@ export function Composer({
   const [atRange, setAtRange] = useState<{ start: number; end: number } | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const suggestReq = useRef(0);
+  const suggestListRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -62,6 +63,23 @@ export function Composer({
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 180) + "px";
   }, [value]);
+
+  // Keep the arrow-key-highlighted suggestion visible inside the scroll list,
+  // with extra bottom padding so the next file is also peekable.
+  useEffect(() => {
+    const list = suggestListRef.current;
+    if (!list || suggestions.length === 0) return;
+    const item = list.children[suggestIndex] as HTMLElement | undefined;
+    if (!item) return;
+    const itemTop = item.offsetTop;
+    const itemBottom = itemTop + item.offsetHeight;
+    const pad = 24;
+    if (itemTop < list.scrollTop) {
+      list.scrollTop = itemTop;
+    } else if (itemBottom + pad > list.scrollTop + list.clientHeight) {
+      list.scrollTop = itemBottom + pad - list.clientHeight;
+    }
+  }, [suggestIndex, suggestions]);
 
   const refreshSuggestions = async (text: string, cursor: number) => {
     const prefix = atPrefixAt(text, cursor);
@@ -165,10 +183,13 @@ export function Composer({
   const canSend = (!!value.trim() || attachments.length > 0) && !disabled;
 
   return (
-    <div className="border-t border-[var(--color-line)] bg-[var(--color-panel)] px-4 py-3">
+    <div className="border-t border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-panel)_85%,transparent)] px-4 py-3 backdrop-blur-xl">
       <div className="relative mx-auto max-w-3xl">
         {suggestions.length > 0 && (
-          <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-panel-2)] py-1 shadow-lg">
+          <div
+            ref={suggestListRef}
+            className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-panel-2)] py-1 shadow-lg"
+          >
             {suggestions.map((s, i) => (
               <button
                 key={s.value + s.label}
@@ -191,7 +212,7 @@ export function Composer({
           </div>
         )}
 
-        <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-ink)] focus-within:border-[var(--color-accent-dim)]">
+        <div className="rounded-2xl border border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-ink)_92%,black)] shadow-[0_10px_28px_rgba(0,0,0,.16)] transition-[border-color,box-shadow] focus-within:border-[var(--color-accent-dim)] focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_10%,transparent)]">
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 border-b border-[var(--color-line)] px-3 pt-3 pb-2">
               {attachments.map((att) => (
@@ -297,7 +318,7 @@ export function Composer({
                 type="button"
                 onClick={submit}
                 disabled={!canSend}
-                className="mb-0.5 rounded-lg bg-[var(--color-accent)] p-2 text-[var(--color-ink)] disabled:opacity-40"
+                className="mb-0.5 rounded-xl bg-[var(--color-accent)] p-2 text-[var(--color-ink)] shadow-[0_2px_10px_color-mix(in_srgb,var(--color-accent)_25%,transparent)] hover:brightness-110 disabled:opacity-40"
                 title="Send"
               >
                 <Send size={14} />

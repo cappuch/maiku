@@ -41,6 +41,9 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-// replace github.com/wailsapp/wails/v2 v2.13.0 => /Users/mikus/go/pkg/mod
+// Local copy of wails v2.13.0 with a macOS patch: WailsWindow.sendEvent
+// swallows double-clicks on the native title bar strip so the OS
+// zoom/minimize action no longer fires on maiku's custom drag region.
+replace github.com/wailsapp/wails/v2 => ./wails
 
 replace github.com/mikus/maiku => ../

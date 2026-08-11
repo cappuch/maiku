@@ -67,6 +67,7 @@ export namespace main {
 	    id: string;
 	    role: string;
 	    text?: string;
+	    thinking?: string;
 	    toolName?: string;
 	    toolCallId?: string;
 	    args?: number[];
@@ -84,6 +85,7 @@ export namespace main {
 	        this.id = source["id"];
 	        this.role = source["role"];
 	        this.text = source["text"];
+	        this.thinking = source["thinking"];
 	        this.toolName = source["toolName"];
 	        this.toolCallId = source["toolCallId"];
 	        this.args = source["args"];
@@ -149,6 +151,9 @@ export namespace main {
 	    hasApiKey: boolean;
 	    messages: UIMessage[];
 	    recentDirs: string[];
+	    streamingSessionIds: string[];
+	    streamText: string;
+	    streamThinking: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -169,6 +174,9 @@ export namespace main {
 	        this.hasApiKey = source["hasApiKey"];
 	        this.messages = this.convertValues(source["messages"], UIMessage);
 	        this.recentDirs = source["recentDirs"];
+	        this.streamingSessionIds = source["streamingSessionIds"];
+	        this.streamText = source["streamText"];
+	        this.streamThinking = source["streamThinking"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -517,6 +517,9 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 
 	if model.Reasoning && opts.Reasoning != "" && opts.Reasoning != ai.ThinkingOff {
 		req.ReasoningEffort = mapReasoningEffort(opts.Reasoning)
+		// Reasoning shares max_tokens with the answer — expand so thinking
+		// cannot consume the whole ceiling before any reply/tool call.
+		req.MaxTokens = ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets)
 	}
 
 	return req
@@ -551,7 +554,13 @@ func convertMessages(model ai.Model, ctxData ai.Context) []chatMessage {
 		case "user":
 			out = append(out, convertUserMessage(m.UserContent))
 		case "assistant":
-			out = append(out, convertAssistantMessage(m))
+			msg := convertAssistantMessage(m)
+			// Thinking-only / empty assistants become {"role":"assistant"} with
+			// neither content nor tool_calls; many providers 400 on that.
+			if isEmptyAssistantChatMessage(msg) {
+				continue
+			}
+			out = append(out, msg)
 		case "toolResult":
 			j := i
 			for j < len(messages) && messages[j].Role == "toolResult" {
@@ -562,6 +571,20 @@ func convertMessages(model ai.Model, ctxData ai.Context) []chatMessage {
 		}
 	}
 	return out
+}
+
+func isEmptyAssistantChatMessage(msg chatMessage) bool {
+	if len(msg.ToolCalls) > 0 {
+		return false
+	}
+	switch c := msg.Content.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(c) == ""
+	default:
+		return false
+	}
 }
 
 func convertUserMessage(content any) chatMessage {

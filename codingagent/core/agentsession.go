@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,8 +18,9 @@ import (
 const DefaultThinkingLevel = agent.ThinkingMedium
 
 // ConvertToLLM projects transcript messages into the LLM-visible message
-// list. Failed assistant turns carry no content and are dropped so a retry
-// does not resend an empty assistant message.
+// list. Assistant turns with no text or tool calls (thinking-only length
+// stops, empty error/abort shells) are dropped so providers that reject
+// `{"role":"assistant"}` without content do not 400 on the next turn.
 func ConvertToLLM(messages []agent.AgentMessage) ([]ai.Message, error) {
 	out := make([]ai.Message, 0, len(messages))
 	for _, m := range messages {
@@ -26,14 +28,27 @@ func ConvertToLLM(messages []agent.AgentMessage) ([]ai.Message, error) {
 		case "user", "toolResult":
 			out = append(out, m)
 		case "assistant":
-			if len(m.AssistantContent) == 0 &&
-				(m.StopReason == ai.StopError || m.StopReason == ai.StopAborted) {
+			if !assistantHasLLMContent(m) {
 				continue
 			}
 			out = append(out, m)
 		}
 	}
 	return out, nil
+}
+
+func assistantHasLLMContent(m agent.AgentMessage) bool {
+	for _, c := range m.AssistantContent {
+		switch c.Type {
+		case "text":
+			if strings.TrimSpace(c.Text) != "" {
+				return true
+			}
+		case "toolCall":
+			return true
+		}
+	}
+	return false
 }
 
 // AgentSessionOptions configures NewAgentSession.
@@ -87,7 +102,19 @@ func NewAgentSession(options AgentSessionOptions) *AgentSession {
 		thinkingLevel = DefaultThinkingLevel
 	}
 	if !options.Model.Reasoning {
-		thinkingLevel = agent.ThinkingOff
+		switch {
+		case thinkingLevel == agent.ThinkingOff:
+			// Explicit off (or a non-reasoning model's default) — nothing to do.
+		case thinkingLevel == DefaultThinkingLevel:
+			// No explicit choice and the catalog says this model doesn't
+			// reason — keep thinking off by default.
+			thinkingLevel = agent.ThinkingOff
+		default:
+			// An explicit non-default level opts the model into reasoning even
+			// when the /models catalog doesn't advertise it (e.g. DeepSeek V4
+			// on OpenCode), so the level actually reaches the API.
+			options.Model.Reasoning = true
+		}
 	}
 
 	var initialMessages []ai.Message

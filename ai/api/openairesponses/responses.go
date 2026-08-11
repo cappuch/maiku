@@ -748,6 +748,10 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 	if model.Reasoning && opts.Reasoning != "" && opts.Reasoning != ai.ThinkingOff {
 		req.Reasoning = &reasoningParam{Effort: mapReasoningEffort(model, opts.Reasoning), Summary: "auto"}
 		req.Include = []string{"reasoning.encrypted_content"}
+		req.MaxOutputTokens = ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets)
+		if req.MaxOutputTokens < minOutputTokens {
+			req.MaxOutputTokens = minOutputTokens
+		}
 	}
 
 	return req

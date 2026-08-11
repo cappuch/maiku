@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 import {
   Abort,
@@ -46,7 +46,22 @@ function normalizeState(raw: any): AppState {
     hasApiKey: !!raw?.hasApiKey,
     messages: Array.isArray(raw?.messages) ? raw.messages : [],
     recentDirs: Array.isArray(raw?.recentDirs) ? raw.recentDirs : [],
+    streamingSessionIds: Array.isArray(raw?.streamingSessionIds)
+      ? raw.streamingSessionIds
+      : [],
+    streamText: typeof raw?.streamText === "string" ? raw.streamText : "",
+    streamThinking: typeof raw?.streamThinking === "string" ? raw.streamThinking : "",
   };
+}
+
+function markStreaming(ids: string[], sessionId: string): string[] {
+  if (!sessionId || ids.includes(sessionId)) return ids;
+  return [...ids, sessionId];
+}
+
+function clearStreaming(ids: string[], sessionId: string): string[] {
+  if (!sessionId) return ids;
+  return ids.filter((id) => id !== sessionId);
 }
 
 export default function App() {
@@ -56,11 +71,17 @@ export default function App() {
   const [keys, setKeys] = useState<APIKeyStatus[]>([]);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [streamText, setStreamText] = useState("");
+  const [streamThinking, setStreamThinking] = useState("");
+  const [thinkingStartedAt, setThinkingStartedAt] = useState<number | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [streamingSessionIds, setStreamingSessionIds] = useState<string[]>([]);
   const [tokensPerSec, setTokensPerSec] = useState(0);
   const [usage, setUsage] = useState<UsageTotals>(emptyUsage());
   const streamRef = useRef<{ time: number; chars: number } | null>(null);
-  const rateRef = useRef(0);
+  // Ring buffer of recent instantaneous tok/s samples; the displayed rate is
+  // the plain average so per-update jitter doesn't spike the readout.
+  const rateSamplesRef = useRef<number[]>([]);
+  const RATE_BUFFER = 16;
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -68,6 +89,7 @@ export default function App() {
   // Bumped on every refresh (and session switch) so a slow in-flight refresh
   // cannot overwrite a newer session after NewSession / OpenSession.
   const refreshGenRef = useRef(0);
+  const focusedSessionRef = useRef("");
 
   const refresh = useCallback(async () => {
     const gen = ++refreshGenRef.current;
@@ -76,16 +98,34 @@ export default function App() {
     const [s, sess] = await Promise.all([GetState(), ListSessions()]);
     if (gen !== refreshGenRef.current) return;
     const next = normalizeState(s);
+    focusedSessionRef.current = next.sessionId;
     setState(next);
     setMessages(next.messages);
     setUsage(next.usage);
     setStreaming(next.streaming);
+    setStreamingSessionIds(next.streamingSessionIds);
+    setStreamText(next.streamText || "");
+    setStreamThinking(next.streamThinking || "");
+    if (next.streamThinking) {
+      setThinkingStartedAt((prev) => prev ?? Date.now());
+    } else if (!next.streaming) {
+      setThinkingStartedAt(null);
+    }
+    if (!next.streaming) {
+      streamRef.current = null;
+      rateSamplesRef.current = [];
+      setTokensPerSec(0);
+    }
     setSessions((sess as SessionSummary[]) || []);
 
     const [mods, apiKeys] = await Promise.all([ListModels(), ListAPIKeys()]);
     if (gen !== refreshGenRef.current) return;
     setModels((mods as ModelInfo[]) || []);
     setKeys((apiKeys as APIKeyStatus[]) || []);
+  }, []);
+
+  const isFocused = useCallback((sessionId: unknown) => {
+    return typeof sessionId === "string" && sessionId !== "" && sessionId === focusedSessionRef.current;
   }, []);
 
   useEffect(() => {
@@ -95,9 +135,21 @@ export default function App() {
   useEffect(() => {
     const offs = [
       EventsOn("maiku:message_update", (data: any) => {
+        const sid = data?.sessionId as string | undefined;
+        if (sid) {
+          setStreamingSessionIds((prev) => markStreaming(prev, sid));
+        }
+        if (!isFocused(sid)) return;
+
         if (data?.role === "assistant") {
           setStreaming(true);
           setStreamText(data.text || "");
+          const thinking =
+            typeof data.thinking === "string" ? data.thinking : "";
+          setStreamThinking(thinking);
+          if (thinking) {
+            setThinkingStartedAt((prev) => prev ?? Date.now());
+          }
           // Measure live generation speed: chars delta / elapsed, ~4 chars per token.
           // The backend sends data.chars = all streamed content (text + thinking +
           // tool-call JSON), so the rate moves during reasoning instead of sitting
@@ -111,9 +163,12 @@ export default function App() {
             const dc = total - prev.chars;
             if (dt > 0 && dc > 0) {
               const inst = dc / dt / 4;
-              rateRef.current =
-                rateRef.current > 0 ? rateRef.current * 0.7 + inst * 0.3 : inst;
-              setTokensPerSec(rateRef.current);
+              const samples = rateSamplesRef.current;
+              samples.push(inst);
+              if (samples.length > RATE_BUFFER) samples.shift();
+              let sum = 0;
+              for (let i = 0; i < samples.length; i++) sum += samples[i];
+              setTokensPerSec(sum / samples.length);
             }
           }
           streamRef.current = { time: now, chars: total };
@@ -172,6 +227,9 @@ export default function App() {
         }
       }),
       EventsOn("maiku:message_end", (data: any) => {
+        const sid = data?.sessionId as string | undefined;
+        if (!isFocused(sid)) return;
+
         const msg = data?.message as UIMessage | undefined;
         if (msg) {
           setMessages((prev) => {
@@ -210,18 +268,24 @@ export default function App() {
               }
             }
             // Skip empty assistant shells (tool-only turns already have cards).
-            if (msg.role === "assistant" && !msg.text) return prev;
+            if (msg.role === "assistant" && !msg.text && !msg.thinking) return prev;
             if (msg.role === "toolResult") return prev;
             return [...prev, { ...msg, streaming: false }];
           });
         }
         if (data?.usage) setUsage(data.usage);
         setStreamText("");
+        setStreamThinking("");
+        setThinkingStartedAt(null);
         streamRef.current = null;
-        rateRef.current = 0;
+        rateSamplesRef.current = [];
         setTokensPerSec(0);
       }),
       EventsOn("maiku:tool_start", (data: any) => {
+        const sid = data?.sessionId as string | undefined;
+        if (sid) setStreamingSessionIds((prev) => markStreaming(prev, sid));
+        if (!isFocused(sid)) return;
+
         setMessages((prev) => {
           const id = data?.toolCallId as string | undefined;
           const name = (data?.toolName as string) || "";
@@ -265,6 +329,7 @@ export default function App() {
         });
       }),
       EventsOn("maiku:tool_end", (data: any) => {
+        if (!isFocused(data?.sessionId)) return;
         setMessages((prev) => {
           const next = [...prev];
           for (let i = next.length - 1; i >= 0; i--) {
@@ -288,42 +353,73 @@ export default function App() {
           return next;
         });
       }),
-      EventsOn("maiku:idle", () => {
+      EventsOn("maiku:idle", (data: any) => {
+        const sid = (data?.sessionId as string) || "";
+        if (sid) {
+          setStreamingSessionIds((prev) => clearStreaming(prev, sid));
+        }
+        if (!isFocused(sid)) {
+          // Background session finished — refresh sidebar list only.
+          ListSessions()
+            .then((sess) => setSessions((sess as SessionSummary[]) || []))
+            .catch(() => {});
+          return;
+        }
         setStreaming(false);
         setStreamText("");
+        setStreamThinking("");
+        setThinkingStartedAt(null);
         streamRef.current = null;
-        rateRef.current = 0;
+        rateSamplesRef.current = [];
         setTokensPerSec(0);
         refresh().catch(() => {});
       }),
       EventsOn("maiku:error", (data: any) => {
+        const sid = data?.sessionId as string | undefined;
+        if (sid) setStreamingSessionIds((prev) => clearStreaming(prev, sid));
+        if (!isFocused(sid)) return;
         setError(data?.error || "Unknown error");
         setStreaming(false);
       }),
     ];
     return () => offs.forEach((off) => off && off());
-  }, [refresh]);
+  }, [refresh, isFocused]);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, streamText]);
-
-  const displayMessages = useMemo(() => {
-    if (!streamText) return messages;
-    return [...messages, { role: "assistant", text: streamText, streaming: true }];
-  }, [messages, streamText]);
+  }, [messages, streamText, streamThinking]);
 
   const onSend = async (text: string, images: ImageAttachment[] = []) => {
     setError(null);
     setMessages((prev) => [...prev, { role: "user", text, images }]);
     setStreaming(true);
+    if (focusedSessionRef.current) {
+      setStreamingSessionIds((prev) => markStreaming(prev, focusedSessionRef.current));
+    }
     try {
       await Prompt(text, images);
     } catch (e: any) {
       setError(e?.message || String(e));
       setStreaming(false);
+      if (focusedSessionRef.current) {
+        setStreamingSessionIds((prev) => clearStreaming(prev, focusedSessionRef.current));
+      }
     }
+  };
+
+  const switchSession = async (fn: () => Promise<unknown>) => {
+    refreshGenRef.current += 1;
+    // Ignore transcript events until refresh pins the new focus.
+    focusedSessionRef.current = "";
+    setStreamText("");
+    setStreamThinking("");
+    setThinkingStartedAt(null);
+    streamRef.current = null;
+    rateSamplesRef.current = [];
+    setTokensPerSec(0);
+    await fn();
+    await refresh();
   };
 
   if (!state) {
@@ -338,11 +434,15 @@ export default function App() {
     <AppShell
       state={state}
       usage={usage}
-      messages={displayMessages}
+      messages={messages}
       sessions={sessions}
       models={models}
       keys={keys}
       streaming={streaming}
+      streamingSessionIds={streamingSessionIds}
+      streamText={streamText}
+      streamThinking={streamThinking}
+      thinkingStartedAt={thinkingStartedAt}
       tokensPerSec={tokensPerSec}
       sidebarOpen={sidebarOpen}
       settingsOpen={settingsOpen}
@@ -354,39 +454,20 @@ export default function App() {
       onSend={onSend}
       onAbort={() => Abort()}
       onNewSession={async () => {
-        refreshGenRef.current += 1;
-        setMessages([]);
-        setStreamText("");
-        setStreaming(false);
-        await NewSession();
-        await refresh();
+        await switchSession(() => NewSession());
       }}
       onOpenFolder={async () => {
-        refreshGenRef.current += 1;
-        setMessages([]);
-        setStreamText("");
-        setStreaming(false);
-        await OpenFolder();
-        await refresh();
+        await switchSession(() => OpenFolder());
       }}
       onOpenRecentFolder={async (path) => {
         try {
-          refreshGenRef.current += 1;
-          setMessages([]);
-          setStreamText("");
-          setStreaming(false);
-          await OpenRecentFolder(path);
-          await refresh();
+          await switchSession(() => OpenRecentFolder(path));
         } catch (e: any) {
           setError(e?.message || String(e));
         }
       }}
       onOpenSession={async (path) => {
-        refreshGenRef.current += 1;
-        setStreamText("");
-        setStreaming(false);
-        await OpenSession(path);
-        await refresh();
+        await switchSession(() => OpenSession(path));
       }}
       onRenameSession={async (path, name) => {
         try {

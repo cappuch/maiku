@@ -28,23 +28,29 @@ import (
 	"github.com/mikus/maiku/codingagent/core/compaction"
 )
 
+// liveSession is an in-memory agent bound to a session file. Streaming lives
+// can keep running after the UI focuses a different session.
+type liveSession struct {
+	id        string
+	mgr       *core.SessionManager
+	session   *core.AgentSession
+	cancel    context.CancelFunc
+	unsub     func()
+	usage     UsageTotals
+	promptGen uint64
+}
+
 // App is the Wails-bound backend for the maiku desktop UI.
 type App struct {
 	ctx context.Context
 
-	mu      sync.Mutex
-	cwd     string
-	model   ai.Model
+	mu       sync.Mutex
+	cwd      string
+	model    ai.Model
 	thinking agent.ThinkingLevel
-	session *core.AgentSession
-	mgr     *core.SessionManager
-	cancel  context.CancelFunc
-	// promptGen identifies the active Prompt goroutine so a cancelled/switched
-	// run cannot clear a newer cancel or emit idle/error into the new session.
-	promptGen uint64
-	unsub     func()
 
-	usage UsageTotals
+	live     map[string]*liveSession
+	activeID string
 
 	recentDirs []string
 
@@ -67,19 +73,22 @@ type UsageTotals struct {
 
 // AppState is returned by GetState.
 type AppState struct {
-	Cwd           string       `json:"cwd"`
-	FolderName    string       `json:"folderName"`
-	Provider      string       `json:"provider"`
-	ModelID       string       `json:"modelId"`
-	ModelName     string       `json:"modelName"`
-	Thinking      string       `json:"thinking"`
-	Streaming     bool         `json:"streaming"`
-	SessionID     string       `json:"sessionId"`
-	SessionPath   string       `json:"sessionPath"`
-	Usage         UsageTotals  `json:"usage"`
-	HasAPIKey     bool         `json:"hasApiKey"`
-	Messages      []UIMessage  `json:"messages"`
-	RecentDirs    []string     `json:"recentDirs"`
+	Cwd                 string       `json:"cwd"`
+	FolderName          string       `json:"folderName"`
+	Provider            string       `json:"provider"`
+	ModelID             string       `json:"modelId"`
+	ModelName           string       `json:"modelName"`
+	Thinking            string       `json:"thinking"`
+	Streaming           bool         `json:"streaming"`
+	SessionID           string       `json:"sessionId"`
+	SessionPath         string       `json:"sessionPath"`
+	Usage               UsageTotals  `json:"usage"`
+	HasAPIKey           bool         `json:"hasApiKey"`
+	Messages            []UIMessage  `json:"messages"`
+	RecentDirs          []string     `json:"recentDirs"`
+	StreamingSessionIDs []string     `json:"streamingSessionIds"`
+	StreamText          string       `json:"streamText"`
+	StreamThinking      string       `json:"streamThinking"`
 }
 
 // UIMessage is a frontend-friendly transcript entry.
@@ -87,6 +96,7 @@ type UIMessage struct {
 	ID         string            `json:"id"`
 	Role       string            `json:"role"`
 	Text       string            `json:"text,omitempty"`
+	Thinking   string            `json:"thinking,omitempty"`
 	ToolName   string            `json:"toolName,omitempty"`
 	ToolCallID string            `json:"toolCallId,omitempty"`
 	Args       json.RawMessage   `json:"args,omitempty"`
@@ -132,6 +142,7 @@ func NewApp() *App {
 	a := &App{
 		cwd:        cwd,
 		thinking:   core.DefaultThinkingLevel,
+		live:       make(map[string]*liveSession),
 		recentDirs: recentDirs,
 	}
 	if cwd != "" {
@@ -164,16 +175,24 @@ func NewApp() *App {
 	return a
 }
 
-// applyModelThinkingLocked sets the reasoning level for the active model: a
-// saved per-model level wins, otherwise reasoning-capable models default to
-// medium and non-reasoning models run with thinking off.
+// applyModelThinkingLocked sets the reasoning level for the active model.
+// An explicitly saved per-model level always wins: the /models catalog's
+// reasoning heuristic is unreliable (e.g. DeepSeek V4 on OpenCode advertises
+// no reasoning flags), so a level the user chose is honored even for models
+// the catalog marks non-reasoning. Models with no saved level default to
+// medium when the catalog says they reason, otherwise thinking is off.
 func (a *App) applyModelThinkingLocked(settings core.Settings) {
-	if !a.model.Reasoning {
-		a.thinking = agent.ThinkingOff
-		return
-	}
 	if level, ok := settings.ThinkingLevelForModel(a.model.ID); ok && cli.IsValidThinkingLevel(level) {
 		a.thinking = agent.ThinkingLevel(level)
+		if level != string(agent.ThinkingOff) {
+			// A saved non-off level opts the model into reasoning so live
+			// sessions and the API layer actually honor it on restart.
+			a.model.Reasoning = true
+		}
+		return
+	}
+	if !a.model.Reasoning {
+		a.thinking = agent.ThinkingOff
 		return
 	}
 	a.thinking = core.DefaultThinkingLevel
@@ -259,31 +278,65 @@ func (a *App) sessionDir() string {
 func (a *App) ensureSession() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.session != nil {
+	if a.activeLocked() != nil {
 		return nil
 	}
-	return a.rebuildSessionLocked(nil)
+	return a.focusNewLocked(nil)
 }
 
-func (a *App) rebuildSessionLocked(mgr *core.SessionManager) error {
-	// Cancel any in-flight prompt before tearing down the session so late
-	// stream/idle events cannot land on the replacement session.
-	if a.cancel != nil {
-		a.cancel()
-		a.cancel = nil
+func (a *App) activeLocked() *liveSession {
+	if a.activeID == "" {
+		return nil
 	}
-	a.promptGen++
-	if a.session != nil {
-		a.session.Abort()
+	return a.live[a.activeID]
+}
+
+// leaveActiveLocked detaches the focused session. Streaming sessions stay in
+// the live map; idle ones are disposed and removed.
+func (a *App) leaveActiveLocked() {
+	if a.activeID == "" {
+		return
 	}
-	if a.unsub != nil {
-		a.unsub()
-		a.unsub = nil
+	prev, ok := a.live[a.activeID]
+	if !ok {
+		a.activeID = ""
+		return
 	}
-	if a.session != nil {
-		a.session.Dispose()
-		a.session = nil
+	if prev.session != nil && prev.session.State().IsStreaming {
+		a.activeID = ""
+		return
 	}
+	a.disposeLiveLocked(prev)
+	delete(a.live, a.activeID)
+	a.activeID = ""
+}
+
+func (a *App) disposeLiveLocked(live *liveSession) {
+	if live == nil {
+		return
+	}
+	if live.cancel != nil {
+		live.cancel()
+		live.cancel = nil
+	}
+	live.promptGen++
+	if live.unsub != nil {
+		live.unsub()
+		live.unsub = nil
+	}
+	if live.session != nil {
+		if live.session.State().IsStreaming {
+			live.session.Abort()
+		}
+		live.session.Dispose()
+		live.session = nil
+	}
+}
+
+// focusNewLocked leaves the current focus and creates/attaches mgr as the
+// focused live session. mgr may be nil to start a brand-new session.
+func (a *App) focusNewLocked(mgr *core.SessionManager) error {
+	a.leaveActiveLocked()
 
 	cwd := a.cwd
 	if cwd == "" {
@@ -296,9 +349,48 @@ func (a *App) rebuildSessionLocked(mgr *core.SessionManager) error {
 		mgr = core.NewSessionManager(cwd, dir, true)
 	}
 	_ = mgr.EnsurePersisted()
-	a.mgr = mgr
-	a.usage = UsageTotals{}
-	a.recomputeUsageLocked(mgr.Messages())
+	id := mgr.Header().ID
+
+		if _, ok := a.live[id]; ok {
+			a.activeID = id
+			return nil
+		}
+
+	live, err := a.createLiveSessionLocked(mgr)
+	if err != nil {
+		return err
+	}
+	a.live[id] = live
+	a.activeID = id
+	return nil
+}
+
+// focusExistingLocked switches focus to an already-live session.
+func (a *App) focusExistingLocked(id string) bool {
+	live, ok := a.live[id]
+	if !ok || live == nil {
+		return false
+	}
+	if a.activeID == id {
+		return true
+	}
+	a.leaveActiveLocked()
+	a.activeID = id
+	if live.mgr != nil && live.mgr.Header().Cwd != "" {
+		a.cwd = live.mgr.Header().Cwd
+		a.rememberDirLocked(a.cwd)
+	}
+	return true
+}
+
+func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, error) {
+	cwd := mgr.Header().Cwd
+	if cwd == "" {
+		cwd = a.cwd
+	}
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
 
 	tools := core.SelectTools(cwd, nil, nil, false)
 	toolNames := make([]string, 0, len(tools))
@@ -334,12 +426,21 @@ func (a *App) rebuildSessionLocked(mgr *core.SessionManager) error {
 			BaseDelayMs: settings.Settings.RetryBaseDelayMs(),
 		},
 	})
-	a.session = session
-	a.unsub = session.Subscribe(a.onAgentEvent)
-	return nil
+
+	id := mgr.Header().ID
+	live := &liveSession{
+		id:      id,
+		mgr:     mgr,
+		session: session,
+	}
+	live.recomputeUsage(mgr.Messages())
+	live.unsub = session.Subscribe(func(event agent.AgentEvent) {
+		a.onAgentEvent(id, event)
+	})
+	return live, nil
 }
 
-func (a *App) onAgentEvent(event agent.AgentEvent) {
+func (a *App) onAgentEvent(sessionID string, event agent.AgentEvent) {
 	switch event.Type {
 	case agent.EventMessageUpdate:
 		text := ""
@@ -351,9 +452,11 @@ func (a *App) onAgentEvent(event agent.AgentEvent) {
 			chars = streamedChars(event.Message)
 		}
 		payload := map[string]any{
-			"role":  event.Message.Role,
-			"text":  text,
-			"chars": chars,
+			"sessionId": sessionID,
+			"role":      event.Message.Role,
+			"text":      text,
+			"thinking":  assistantThinking(event.Message),
+			"chars":     chars,
 		}
 		if len(toolCalls) > 0 {
 			payload["toolCalls"] = toolCalls
@@ -361,24 +464,31 @@ func (a *App) onAgentEvent(event agent.AgentEvent) {
 		a.emit("maiku:message_update", payload)
 	case agent.EventMessageEnd:
 		a.mu.Lock()
-		if event.Message.Role == "assistant" && event.Message.Usage != nil {
-			a.addUsageLocked(*event.Message.Usage)
+		live := a.live[sessionID]
+		if live != nil && event.Message.Role == "assistant" && event.Message.Usage != nil {
+			live.addUsage(*event.Message.Usage)
 		}
-		usage := a.usage
+		var usage UsageTotals
+		if live != nil {
+			usage = live.usage
+		}
 		a.mu.Unlock()
 		a.emit("maiku:message_end", map[string]any{
-			"message": toUIMessage(event.Message),
-			"usage":   usage,
+			"sessionId": sessionID,
+			"message":   toUIMessage(event.Message),
+			"usage":     usage,
 		})
 	case agent.EventToolExecutionStart:
 		args, _ := json.Marshal(event.Args)
 		a.emit("maiku:tool_start", map[string]any{
+			"sessionId":  sessionID,
 			"toolCallId": event.ToolCallID,
 			"toolName":   event.ToolName,
 			"args":       json.RawMessage(args),
 		})
 	case agent.EventToolExecutionUpdate:
 		a.emit("maiku:tool_update", map[string]any{
+			"sessionId":     sessionID,
 			"toolCallId":    event.ToolCallID,
 			"toolName":      event.ToolName,
 			"partialResult": event.PartialResult,
@@ -398,6 +508,7 @@ func (a *App) onAgentEvent(event agent.AgentEvent) {
 			}
 		}
 		a.emit("maiku:tool_end", map[string]any{
+			"sessionId":  sessionID,
 			"toolCallId": event.ToolCallID,
 			"toolName":   event.ToolName,
 			"result":     event.Result,
@@ -406,7 +517,7 @@ func (a *App) onAgentEvent(event agent.AgentEvent) {
 			"isError":    event.IsError,
 		})
 	case agent.EventAgentEnd:
-		a.emit("maiku:idle", map[string]any{"ok": true})
+		a.emit("maiku:idle", map[string]any{"ok": true, "sessionId": sessionID})
 	}
 }
 
@@ -415,6 +526,19 @@ func assistantText(m ai.Message) string {
 	for _, c := range m.AssistantContent {
 		if c.Type == "text" {
 			b.WriteString(c.Text)
+		}
+	}
+	return b.String()
+}
+
+func assistantThinking(m ai.Message) string {
+	var b strings.Builder
+	for _, c := range m.AssistantContent {
+		if c.Type == "thinking" && c.Thinking != "" {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(c.Thinking)
 		}
 	}
 	return b.String()
@@ -468,7 +592,7 @@ func toUIMessage(m ai.Message) UIMessage {
 			Images: extractUserImages(m.UserContent),
 		}
 	case "assistant":
-		return UIMessage{Role: "assistant", Text: assistantText(m)}
+		return UIMessage{Role: "assistant", Text: assistantText(m), Thinking: assistantThinking(m)}
 	case "toolResult":
 		text := ""
 		for _, c := range m.ToolContent {
@@ -507,7 +631,9 @@ func transcriptUIMessages(messages []ai.Message) []UIMessage {
 			out = append(out, toUIMessage(m))
 		case "assistant":
 			if text := assistantText(m); text != "" {
-				out = append(out, UIMessage{Role: "assistant", Text: text})
+				out = append(out, UIMessage{Role: "assistant", Text: text, Thinking: assistantThinking(m)})
+			} else if thinking := assistantThinking(m); thinking != "" {
+				out = append(out, UIMessage{Role: "assistant", Thinking: thinking})
 			}
 			for _, c := range m.AssistantContent {
 				if c.Type != "toolCall" {
@@ -593,26 +719,67 @@ func extractUserImages(content any) []ImageAttachment {
 	return out
 }
 
-func (a *App) addUsageLocked(u ai.Usage) {
-	a.usage.Input += u.Input
-	a.usage.Output += u.Output
-	a.usage.CacheRead += u.CacheRead
-	a.usage.CacheWrite += u.CacheWrite
-	a.usage.TotalTokens += u.TotalTokens
-	a.usage.Cost += u.Cost.Total
-	den := a.usage.Input + a.usage.CacheRead
+func (live *liveSession) addUsage(u ai.Usage) {
+	live.usage.Input += u.Input
+	live.usage.Output += u.Output
+	live.usage.CacheRead += u.CacheRead
+	live.usage.CacheWrite += u.CacheWrite
+	live.usage.TotalTokens += u.TotalTokens
+	live.usage.Cost += u.Cost.Total
+	den := live.usage.Input + live.usage.CacheRead
 	if den > 0 {
-		a.usage.CacheRate = float64(a.usage.CacheRead) / float64(den)
+		live.usage.CacheRate = float64(live.usage.CacheRead) / float64(den)
 	}
 }
 
-func (a *App) recomputeUsageLocked(messages []ai.Message) {
-	a.usage = UsageTotals{}
+func (live *liveSession) recomputeUsage(messages []ai.Message) {
+	live.usage = UsageTotals{}
 	for _, m := range messages {
 		if m.Role == "assistant" && m.Usage != nil && m.StopReason != ai.StopError && m.StopReason != ai.StopAborted {
-			a.addUsageLocked(*m.Usage)
+			live.addUsage(*m.Usage)
 		}
 	}
+}
+
+func (a *App) streamingSessionIDsLocked() []string {
+	var out []string
+	for id, live := range a.live {
+		if live != nil && live.session != nil && live.session.State().IsStreaming {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// hydrateStreamingTools appends in-flight tool cards from the partial assistant
+// message. Assistant text is returned separately as streamText so the UI
+// overlay does not double-render.
+func hydrateStreamingTools(messages []UIMessage, st agent.AgentState) []UIMessage {
+	if st.StreamingMessage == nil {
+		return messages
+	}
+	sm := *st.StreamingMessage
+	seen := map[string]bool{}
+	for _, m := range messages {
+		if m.ToolCallID != "" {
+			seen[m.ToolCallID] = true
+		}
+	}
+	for _, c := range sm.AssistantContent {
+		if c.Type != "toolCall" || c.ID == "" || seen[c.ID] {
+			continue
+		}
+		messages = append(messages, UIMessage{
+			Role:       "tool",
+			ToolCallID: c.ID,
+			ToolName:   c.Name,
+			Args:       mustJSON(c.Arguments),
+			Text:       "running…",
+			Streaming:  true,
+		})
+		seen[c.ID] = true
+	}
+	return messages
 }
 
 // GetState returns the current UI state snapshot.
@@ -628,28 +795,45 @@ func (a *App) GetState() AppState {
 	sessionID, sessionPath := "", ""
 	var messages []UIMessage
 	streaming := false
-	if a.mgr != nil {
-		sessionID = a.mgr.Header().ID
-		sessionPath = a.mgr.File()
-		messages = transcriptUIMessages(a.mgr.Messages())
-	}
-	if a.session != nil {
-		streaming = a.session.State().IsStreaming
+	streamText := ""
+	streamThinking := ""
+	usage := UsageTotals{}
+	if live := a.activeLocked(); live != nil {
+		if live.mgr != nil {
+			sessionID = live.mgr.Header().ID
+			sessionPath = live.mgr.File()
+			messages = transcriptUIMessages(live.mgr.Messages())
+		}
+		usage = live.usage
+		if live.session != nil {
+			st := live.session.State()
+			streaming = st.IsStreaming
+			if streaming {
+				if st.StreamingMessage != nil {
+					streamText = assistantText(*st.StreamingMessage)
+					streamThinking = assistantThinking(*st.StreamingMessage)
+				}
+				messages = hydrateStreamingTools(messages, st)
+			}
+		}
 	}
 	return AppState{
-		Cwd:         a.cwd,
-		FolderName:  folder,
-		Provider:    a.model.Provider,
-		ModelID:     a.model.ID,
-		ModelName:   a.model.Name,
-		Thinking:    string(a.thinking),
-		Streaming:   streaming,
-		SessionID:   sessionID,
-		SessionPath: sessionPath,
-		Usage:       a.usage,
-		HasAPIKey:   auth.ResolveAPIKey(a.model.Provider) != "",
-		Messages:    messages,
-		RecentDirs:  append([]string(nil), a.recentDirs...),
+		Cwd:                 a.cwd,
+		FolderName:          folder,
+		Provider:            a.model.Provider,
+		ModelID:             a.model.ID,
+		ModelName:           a.model.Name,
+		Thinking:            string(a.thinking),
+		Streaming:           streaming,
+		SessionID:           sessionID,
+		SessionPath:         sessionPath,
+		Usage:               usage,
+		HasAPIKey:           auth.ResolveAPIKey(a.model.Provider) != "",
+		Messages:            messages,
+		RecentDirs:          append([]string(nil), a.recentDirs...),
+		StreamingSessionIDs: a.streamingSessionIDsLocked(),
+		StreamText:          streamText,
+		StreamThinking:      streamThinking,
 	}
 }
 
@@ -695,21 +879,38 @@ func (a *App) SetModel(provider, modelID string) error {
 	defer a.mu.Unlock()
 	a.model = model
 	a.applyModelThinkingLocked(core.LoadSettings(a.cwd, codingagent.GetAgentDir()).Settings)
-	return a.rebuildSessionLocked(a.mgr)
+	if live := a.activeLocked(); live != nil && live.session != nil {
+		// a.model, not model: applyModelThinkingLocked may have promoted the
+		// model to reasoning so a saved thinking level reaches the API.
+		live.session.Agent().SetModel(a.model)
+		live.session.Agent().SetThinkingLevel(a.thinking)
+	}
+	return nil
 }
 
 // SetThinking sets the thinking level and saves it for the active model id, so
-// each model keeps its own reasoning preference.
+// each model keeps its own reasoning preference. A non-off level opts the
+// model into reasoning even when the catalog doesn't advertise it, so the
+// choice survives a restart and is honored by the live session.
 func (a *App) SetThinking(level string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.thinking = agent.ThinkingLevel(level)
+	if level != string(agent.ThinkingOff) {
+		a.model.Reasoning = true
+	}
 	if a.model.ID != "" {
 		if err := core.SetModelThinkingLevel(codingagent.GetAgentDir(), a.model.ID, level); err != nil {
 			return err
 		}
 	}
-	return a.rebuildSessionLocked(a.mgr)
+	if live := a.activeLocked(); live != nil && live.session != nil {
+		live.session.Agent().SetThinkingLevel(a.thinking)
+		if level != string(agent.ThinkingOff) {
+			live.session.Agent().SetModel(a.model)
+		}
+	}
+	return nil
 }
 
 // RecentDirs returns the five most recently opened directories, newest first.
@@ -739,7 +940,7 @@ func (a *App) OpenRecentFolder(path string) error {
 	a.rememberDirLocked(path)
 	dir := codingagent.GetDefaultSessionDir(path)
 	_ = os.MkdirAll(dir, 0o755)
-	return a.rebuildSessionLocked(core.NewSessionManager(path, dir, true))
+	return a.focusNewLocked(core.NewSessionManager(path, dir, true))
 }
 
 // ListSessions returns session summaries for the sessions root (all workspaces).
@@ -774,7 +975,7 @@ func (a *App) NewSession() error {
 	dir := codingagent.GetDefaultSessionDir(a.cwd)
 	_ = os.MkdirAll(dir, 0o755)
 	mgr := core.NewSessionManager(a.cwd, dir, true)
-	return a.rebuildSessionLocked(mgr)
+	return a.focusNewLocked(mgr)
 }
 
 // OpenSession loads an existing session file.
@@ -785,11 +986,15 @@ func (a *App) OpenSession(path string) error {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	id := mgr.Header().ID
+	if a.focusExistingLocked(id) {
+		return nil
+	}
 	if mgr.Header().Cwd != "" {
 		a.cwd = mgr.Header().Cwd
 		a.rememberDirLocked(a.cwd)
 	}
-	return a.rebuildSessionLocked(mgr)
+	return a.focusNewLocked(mgr)
 }
 
 // OpenFolder opens a native directory picker and switches workspace.
@@ -810,7 +1015,7 @@ func (a *App) OpenFolder() (string, error) {
 	dir := codingagent.GetDefaultSessionDir(path)
 	_ = os.MkdirAll(dir, 0o755)
 	mgr := core.NewSessionManager(path, dir, true)
-	if err := a.rebuildSessionLocked(mgr); err != nil {
+	if err := a.focusNewLocked(mgr); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -945,7 +1150,12 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 	}
 
 	a.mu.Lock()
-	if a.cancel != nil {
+	live := a.activeLocked()
+	if live == nil || live.session == nil {
+		a.mu.Unlock()
+		return fmt.Errorf("no active session")
+	}
+	if live.cancel != nil {
 		a.mu.Unlock()
 		return fmt.Errorf("already streaming")
 	}
@@ -955,18 +1165,22 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 		return fmt.Errorf("no API key for provider %q — add one in Settings", provider)
 	}
 	cwd := a.cwd
+	if live.mgr != nil && live.mgr.Header().Cwd != "" {
+		cwd = live.mgr.Header().Cwd
+	}
 	ctx, cancel := context.WithCancel(a.ctx)
-	a.cancel = cancel
-	a.promptGen++
-	promptGen := a.promptGen
-	session := a.session
+	live.cancel = cancel
+	live.promptGen++
+	promptGen := live.promptGen
+	sessionID := live.id
+	session := live.session
 	a.mu.Unlock()
 
 	expanded, err := core.ExpandAtMentions(cwd, displayText)
 	if err != nil {
 		a.mu.Lock()
-		if a.promptGen == promptGen {
-			a.cancel = nil
+		if cur := a.live[sessionID]; cur != nil && cur.promptGen == promptGen {
+			cur.cancel = nil
 		}
 		a.mu.Unlock()
 		cancel()
@@ -1003,38 +1217,53 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 		display = "(image)"
 	}
 	a.emit("maiku:message_end", map[string]any{
-		"message": UIMessage{Role: "user", Text: display, Images: uiImages},
+		"sessionId": sessionID,
+		"message":   UIMessage{Role: "user", Text: display, Images: uiImages},
 	})
 
 	go func() {
 		defer func() {
 			a.mu.Lock()
-			active := a.promptGen == promptGen
-			if active {
-				a.cancel = nil
+			cur := a.live[sessionID]
+			activePrompt := cur != nil && cur.promptGen == promptGen
+			if activePrompt {
+				cur.cancel = nil
+			}
+			// Drop idle background lives — next open reloads from disk.
+			if cur != nil && a.activeID != sessionID {
+				if cur.session == nil || !cur.session.State().IsStreaming {
+					a.disposeLiveLocked(cur)
+					delete(a.live, sessionID)
+				}
 			}
 			a.mu.Unlock()
-			if active {
-				a.emit("maiku:idle", map[string]any{"ok": true})
+			if activePrompt {
+				a.emit("maiku:idle", map[string]any{"ok": true, "sessionId": sessionID})
 			}
 		}()
 		if err := session.Prompt(ctx, promptText, aiImages...); err != nil {
 			a.mu.Lock()
-			active := a.promptGen == promptGen
+			cur := a.live[sessionID]
+			activePrompt := cur != nil && cur.promptGen == promptGen
 			a.mu.Unlock()
-			if active {
-				a.emit("maiku:error", map[string]any{"error": err.Error()})
+			if activePrompt {
+				a.emit("maiku:error", map[string]any{"error": err.Error(), "sessionId": sessionID})
 			}
 		}
 	}()
 	return nil
 }
 
-// Abort cancels the in-flight prompt.
+// Abort cancels the in-flight prompt on the focused session only.
 func (a *App) Abort() {
 	a.mu.Lock()
-	cancel := a.cancel
-	session := a.session
+	live := a.activeLocked()
+	var cancel context.CancelFunc
+	var session *core.AgentSession
+	if live != nil {
+		cancel = live.cancel
+		session = live.session
+	}
 	a.mu.Unlock()
 	if cancel != nil {
 		cancel()

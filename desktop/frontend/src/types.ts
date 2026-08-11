@@ -33,6 +33,7 @@ export type UIMessage = {
   id?: string;
   role: string;
   text?: string;
+  thinking?: string;
   toolName?: string;
   toolCallId?: string;
   args?: unknown;
@@ -56,6 +57,9 @@ export type AppState = {
   hasApiKey: boolean;
   messages: UIMessage[];
   recentDirs: string[];
+  streamingSessionIds: string[];
+  streamText: string;
+  streamThinking: string;
 };
 
 export type ModelInfo = {

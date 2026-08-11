@@ -39,6 +39,57 @@ type ThinkingBudgets struct {
 	High    *int `json:"high,omitempty"`
 }
 
+// ThinkingBudgetFor returns the reasoning token budget for a thinking level.
+// Used to expand max output tokens so reasoning does not starve the answer.
+func ThinkingBudgetFor(level ThinkingLevel, custom *ThinkingBudgets) int {
+	budgets := map[ThinkingLevel]int{
+		ThinkingMinimal: 1024,
+		ThinkingLow:     2048,
+		ThinkingMedium:  8192,
+		ThinkingHigh:    16384,
+		ThinkingXHigh:   32768,
+		ThinkingMax:     32768,
+	}
+	if custom != nil {
+		if custom.Minimal != nil {
+			budgets[ThinkingMinimal] = *custom.Minimal
+		}
+		if custom.Low != nil {
+			budgets[ThinkingLow] = *custom.Low
+		}
+		if custom.Medium != nil {
+			budgets[ThinkingMedium] = *custom.Medium
+		}
+		if custom.High != nil {
+			budgets[ThinkingHigh] = *custom.High
+			if budgets[ThinkingXHigh] < *custom.High {
+				budgets[ThinkingXHigh] = *custom.High
+			}
+			if budgets[ThinkingMax] < *custom.High {
+				budgets[ThinkingMax] = *custom.High
+			}
+		}
+	}
+	if b, ok := budgets[level]; ok {
+		return b
+	}
+	return budgets[ThinkingMedium]
+}
+
+// ExpandMaxTokensForThinking returns answerMax + reasoning budget so providers
+// that share one output ceiling between thinking and the reply still leave the
+// full answer allotment intact.
+func ExpandMaxTokensForThinking(answerMax int, level ThinkingLevel, custom *ThinkingBudgets) int {
+	if answerMax <= 0 || level == "" || level == ThinkingOff {
+		return answerMax
+	}
+	budget := ThinkingBudgetFor(level, custom)
+	if budget <= 0 {
+		return answerMax
+	}
+	return answerMax + budget
+}
+
 type CacheRetention string
 
 const (

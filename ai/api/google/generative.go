@@ -493,6 +493,9 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 			IncludeThoughts: true,
 			ThinkingBudget:  &budget,
 		}
+		// Gemini counts thoughts toward maxOutputTokens — expand so the
+		// answer allotment stays intact.
+		gen.MaxOutputTokens = ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets)
 	} else if model.Reasoning {
 		zero := 0
 		gen.ThinkingConfig = &thinkingConfig{ThinkingBudget: &zero}
