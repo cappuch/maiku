@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/mikus/maiku/agent"
@@ -181,7 +180,7 @@ func CreateBashTool(cwd string) *agent.AgentTool {
 			cmd := exec.Command("sh", "-c", command)
 			cmd.Dir = cwd
 			cmd.Env = os.Environ()
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			configureBashCmd(cmd)
 
 			out := &safeOutputBuffer{}
 			cmd.Stdout = out
@@ -258,14 +257,3 @@ func CreateBashTool(cwd string) *agent.AgentTool {
 	}
 }
 
-func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process == nil {
-		return
-	}
-	pgid, err := syscall.Getpgid(cmd.Process.Pid)
-	if err != nil {
-		_ = cmd.Process.Kill()
-		return
-	}
-	_ = syscall.Kill(-pgid, syscall.SIGKILL)
-}
