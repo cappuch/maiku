@@ -27,6 +27,24 @@ export function Transcript({
   // Show the live thinking panel while reasoning is streaming and before
   // visible response text arrives.
   const showThinking = !!(streamThinking && streamThinking.trim()) && !showStream;
+  let liveActivityStart = messages.length;
+  if (showThinking) {
+    while (
+      liveActivityStart > 0 &&
+      (messages[liveActivityStart - 1].role === "tool" ||
+        messages[liveActivityStart - 1].role === "toolResult")
+    ) {
+      liveActivityStart -= 1;
+    }
+  }
+
+  const renderMessages = (items: UIMessage[], offset = 0) =>
+    items.map((m, i) => (
+      <MessageRow
+        key={m.toolCallId ? `tool-${m.toolCallId}` : `${m.role}-${offset + i}`}
+        message={m}
+      />
+    ));
 
   return (
     <div ref={scrollRef} className="transcript min-h-0 flex-1 overflow-y-auto px-6 py-7">
@@ -36,15 +54,11 @@ export function Transcript({
         </div>
       )}
       <div className="mx-auto flex max-w-[760px] flex-col gap-5">
-        {messages.map((m, i) => (
-          <MessageRow
-            key={m.toolCallId ? `tool-${m.toolCallId}` : `${m.role}-${i}`}
-            message={m}
-          />
-        ))}
+        {renderMessages(messages.slice(0, liveActivityStart))}
         {showThinking && (
           <ThinkingLive thinking={streamThinking!} startedAt={thinkingStartedAt ?? null} />
         )}
+        {renderMessages(messages.slice(liveActivityStart), liveActivityStart)}
         {streaming && !showThinking && !showStream && <LoadingGrid />}
         {showStream && (
           <div className="flex justify-start">

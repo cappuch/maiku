@@ -29,12 +29,13 @@ export function SettingsDialog({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return keys;
-    return keys.filter((k) => {
+    const providers = keys.filter((k) => k.provider !== "miru");
+    const matching = !q ? providers : providers.filter((k) => {
       const name = (k.name || "").toLowerCase();
       const id = k.provider.toLowerCase();
       return name.includes(q) || id.includes(q);
     });
+    return [...matching.filter((k) => k.hasKey), ...matching.filter((k) => !k.hasKey)];
   }, [keys, query]);
 
   const startCodexLogin = async () => {
@@ -62,69 +63,78 @@ export function SettingsDialog({
   const miruKey = keys.find((k) => k.provider === "miru");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-stretch bg-black/65 p-3 sm:p-6">
-      <div className="flex min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-[var(--color-line)] bg-[var(--color-panel)] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[var(--color-line)] px-5 py-4">
-          <div>
-            <h2 className="text-base font-semibold">Settings</h2>
-            <p className="text-xs text-[var(--color-muted)]">
-              API keys are stored in ~/.maiku/agent/auth.json
-            </p>
-          </div>
+    <div className="fixed inset-0 z-50 bg-[var(--color-panel)]">
+      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+        <header
+          data-wails-drag
+          className="titlebar-drag relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] pr-3 pl-[96px]"
+        >
+          <h2 className="text-sm font-semibold leading-none tracking-tight">Settings</h2>
           <button
             type="button"
+            data-wails-no-drag
             onClick={() => {
               void codexLogin?.cancel();
               onClose();
             }}
-            className="rounded-md p-1.5 text-[var(--color-muted)] outline-none transition hover:bg-[var(--color-panel-2)] focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)]"
+            className="titlebar-no-drag flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-muted)] outline-none transition hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)] focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)]"
+            title="Close settings"
+            aria-label="Close settings"
           >
-            <X size={16} />
+            <X size={15} />
           </button>
-        </div>
+        </header>
 
-        <div className="flex items-center gap-1 border-b border-[var(--color-line)] px-5 pt-2">
-          <button type="button" onClick={() => setTab("providers")} className={`flex items-center gap-2 border-b-2 px-3 py-3 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "providers" ? "border-[var(--color-accent)] text-[var(--color-fg)]" : "border-transparent text-[var(--color-muted)] hover:text-[var(--color-fg)]"}`}>
-            <KeyRound size={14} /> Providers
-          </button>
-          <button type="button" onClick={() => setTab("miru")} className={`flex items-center gap-2 border-b-2 px-3 py-3 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "miru" ? "border-[var(--color-accent)] text-[var(--color-fg)]" : "border-transparent text-[var(--color-muted)] hover:text-[var(--color-fg)]"}`}>
-            <Code2 size={14} /> Miru Code
-          </button>
-        </div>
+        <div className="flex min-h-0 flex-1">
+          <nav className="w-56 shrink-0 border-r border-[var(--color-line)] px-3 py-4">
+            <button type="button" onClick={() => setTab("providers")} className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "providers" ? "bg-[var(--color-panel-2)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-fg)]"}`}>
+              <KeyRound size={14} /> Providers
+            </button>
+            <button type="button" onClick={() => setTab("miru")} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "miru" ? "bg-[var(--color-panel-2)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-fg)]"}`}>
+              <Code2 size={14} /> Miru Code
+            </button>
+          </nav>
 
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         {tab === "providers" ? <>
-        <div className="border-b border-[var(--color-line)] px-5 py-3">
-          <div className="flex items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 transition focus-within:border-[var(--color-accent-dim)] focus-within:ring-2 focus-within:ring-[var(--color-accent-dim)]">
-            <Search size={14} className="shrink-0 text-[var(--color-muted)]" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search providers…"
-              autoFocus
-              className="min-w-0 flex-1 bg-transparent text-xs outline-none ring-0 placeholder:text-[var(--color-muted)]"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                className="rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
-                aria-label="Clear search"
-              >
-                <X size={12} />
-              </button>
-            )}
+        <div className="border-b border-[var(--color-line)] px-8 py-6">
+          <div className="mx-auto flex w-full max-w-4xl items-end justify-between gap-6">
+            <div>
+              <h3 className="text-lg font-semibold tracking-tight">Providers</h3>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">Connect the model providers you want to use.</p>
+            </div>
+            <div className="flex w-72 items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 transition focus-within:border-[var(--color-accent)]">
+              <Search size={14} className="shrink-0 text-[var(--color-muted)]" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search providers…"
+                className="min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 text-xs outline-none ring-0 shadow-none placeholder:text-[var(--color-muted)] focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none"
+                style={{ outline: "none", boxShadow: "none" }}
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+                  aria-label="Clear search"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <div className="space-y-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+          <div className="mx-auto w-full max-w-4xl space-y-3 pb-8">
             {filtered.length === 0 && (
               <p className="py-6 text-center text-xs text-[var(--color-muted)]">
                 No providers match “{query.trim()}”
               </p>
             )}
-            {filtered.map((k) => {
+            {filtered.map((k, index) => {
               const isCodex = k.provider === "openai-codex";
               const placeholder = isCodex
                 ? k.hasKey
@@ -138,10 +148,16 @@ export function SettingsDialog({
                   ? "•••••••• (leave blank to keep)"
                   : "sk-…";
               return (
-                <div key={k.provider} className="rounded-lg border border-[var(--color-line)] p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
+                <div key={k.provider}>
+                {(index === 0 || filtered[index - 1].hasKey !== k.hasKey) && (
+                  <div className={`${index === 0 ? "" : "mt-8"} mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-muted)]`}>
+                    {k.hasKey ? "Configured" : "Available providers"}
+                  </div>
+                )}
+                <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)]/35 p-4 transition-colors hover:border-[color-mix(in_srgb,var(--color-line)_65%,var(--color-muted))]">
+                  <div className="mb-3 flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-xs font-medium">
+                      <div className="truncate text-sm font-medium">
                         {k.name || k.provider}
                       </div>
                       {k.name && k.name !== k.provider && (
@@ -150,8 +166,8 @@ export function SettingsDialog({
                         </div>
                       )}
                     </div>
-                    <span className="shrink-0 text-[10px] text-[var(--color-muted)]">
-                      {k.hasKey ? `set via ${k.source || "file"}` : "not set"}
+                    <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] ${k.hasKey ? "bg-emerald-500/10 text-emerald-400" : "bg-[var(--color-panel-2)] text-[var(--color-muted)]"}`}>
+                      {k.hasKey ? "Connected" : "Not connected"}
                     </span>
                   </div>
 
@@ -193,7 +209,7 @@ export function SettingsDialog({
                       onChange={(e) =>
                         setDrafts((d) => ({ ...d, [k.provider]: e.target.value }))
                       }
-                      className="flex-1 rounded-md border border-[var(--color-line)] bg-[var(--color-ink)] px-2 py-1.5 font-mono text-xs outline-none focus:border-[var(--color-accent-dim)]"
+                      className="min-w-0 flex-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs outline-none transition focus:border-[var(--color-accent)]"
                     />
                     <button
                       type="button"
@@ -209,11 +225,12 @@ export function SettingsDialog({
                           setSaving(null);
                         }
                       }}
-                      className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-ink)] disabled:opacity-40"
+                      className="rounded-lg bg-[var(--color-accent)] px-4 py-2 text-xs font-medium text-[var(--color-ink)] transition hover:brightness-110 disabled:opacity-40 disabled:hover:brightness-100"
                     >
                       Save
                     </button>
                   </div>
+                </div>
                 </div>
               );
             })}
@@ -233,6 +250,8 @@ export function SettingsDialog({
             </div>
           </div>
         )}
+          </section>
+        </div>
       </div>
     </div>
   );
