@@ -9,8 +9,27 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin/universal
+            asset_name: maiku-desktop-macos
+            asset_kind: app
+          - os: windows-latest
+            platform: windows/amd64
+            asset_name: maiku-desktop-windows-amd64
+            asset_kind: exe
+          - os: ubuntu-latest
+            platform: linux/amd64
+            asset_name: maiku-desktop-linux-amd64
+            asset_kind: bin
+            tags: webkit2_41
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,49 +38,104 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            desktop/go.sum
 
-      - name: Build binaries
-        id: build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+
+      - name: Use upstream Wails module
+        working-directory: desktop
+        shell: bash
+        run: |
+          # Local macOS title-bar fork is gitignored; release builds use upstream.
+          go mod edit -dropreplace=github.com/wailsapp/wails/v2
+          go mod tidy
+
+      - name: Build desktop UI
+        working-directory: desktop
+        shell: bash
+        env:
+          CGO_ENABLED: "1"
         run: |
           set -euo pipefail
-          short_sha="${GITHUB_SHA::7}"
-          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          args=(-clean -platform "${{ matrix.platform }}")
+          if [[ -n "${{ matrix.tags || '' }}" ]]; then
+            args+=(-tags "${{ matrix.tags }}")
+          fi
+          wails build "${args[@]}"
+          ls -lah build/bin
 
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p dist
-          targets=(
-            "linux amd64"
-            "linux arm64"
-            "darwin amd64"
-            "darwin arm64"
-            "windows amd64"
-            "windows arm64"
-          )
-          for target in "${targets[@]}"; do
-            read -r goos goarch <<<"$target"
-            ext=""
-            if [[ "$goos" == "windows" ]]; then
-              ext=".exe"
-            fi
-            out="dist/maiku-${goos}-${goarch}${ext}"
-            echo "Building $out"
-            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
-              go build -trimpath -ldflags="-s -w" \
-              -o "$out" ./cmd/maiku
-          done
-          (
-            cd dist
-            sha256sum maiku-* > checksums.txt
-          )
+          case "${{ matrix.asset_kind }}" in
+            app)
+              app_path="$(find desktop/build/bin -maxdepth 1 -name '*.app' | head -1)"
+              test -n "$app_path"
+              ditto -c -k --sequesterRsrc --keepParent "$app_path" "dist/${{ matrix.asset_name }}.zip"
+              ;;
+            exe)
+              exe_path="$(find desktop/build/bin -maxdepth 1 -name '*.exe' | head -1)"
+              test -n "$exe_path"
+              cp "$exe_path" "dist/${{ matrix.asset_name }}.exe"
+              ;;
+            bin)
+              bin_path="$(find desktop/build/bin -maxdepth 1 -type f ! -name '*.yaml' ! -name '*.json' ! -name '*.exe' | head -1)"
+              test -n "$bin_path"
+              cp "$bin_path" "dist/${{ matrix.asset_name }}"
+              chmod +x "dist/${{ matrix.asset_name }}"
+              ;;
+            *)
+              echo "unknown asset_kind: ${{ matrix.asset_kind }}" >&2
+              exit 1
+              ;;
+          esac
           ls -lah dist
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: sha-${{ steps.build.outputs.short_sha }}
-          name: maiku ${{ steps.build.outputs.short_sha }}
+          name: ${{ matrix.asset_name }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Short SHA
+        id: meta
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+          ls -lah
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sha-${{ steps.meta.outputs.short_sha }}
+          name: maiku ${{ steps.meta.outputs.short_sha }}
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: |
-            dist/maiku-*
-            dist/checksums.txt
+          files: dist/*
