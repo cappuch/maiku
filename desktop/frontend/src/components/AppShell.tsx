@@ -379,7 +379,7 @@ export function AppShell(props: Props) {
         {streaming && (
           <span className="flex items-center gap-1 text-[var(--color-accent)]">
             <Square size={10} className="animate-pulse" fill="currentColor" />
-            streaming
+            working
           </span>
         )}
       </footer>

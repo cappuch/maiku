@@ -597,7 +597,11 @@ func toUIMessage(m ai.Message) UIMessage {
 			Images: extractUserImages(m.UserContent),
 		}
 	case "assistant":
-		return UIMessage{Role: "assistant", Text: assistantText(m), Thinking: assistantThinking(m)}
+		text := assistantText(m)
+		if m.StopReason == ai.StopError {
+			text = "Temporary connection problem — we retried, but the request still failed."
+		}
+		return UIMessage{Role: "assistant", Text: text, Thinking: assistantThinking(m), IsError: m.StopReason == ai.StopError}
 	case "toolResult":
 		text := ""
 		for _, c := range m.ToolContent {

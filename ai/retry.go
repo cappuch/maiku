@@ -8,7 +8,7 @@ import (
 
 var (
 	nonRetryableProviderLimitError = regexp.MustCompile(`(?i)GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing`)
-	retryableProviderError         = regexp.MustCompile(`(?i)overloaded|rate.?limit|too many requests|429|500|502|503|504|524|service.?unavailable|server.?error|internal.?error|provider.?returned.?error|exceeded request buffer limit while retrying upstream|network.?error|connection.?error|connection.?refused|connection.?lost|other side closed|fetch failed|getaddrinfo|ENOTFOUND|EAI_AGAIN|upstream.?connect|reset before headers|socket hang up|socket connection was closed|timed? out|timeout|terminated|websocket.?closed|websocket.?error|ended without|stream ended before message_stop|stream ended before a terminal response event|http2 request did not get a response|retry delay|you can retry your request|try your request again|please retry your request|ResourceExhausted`)
+	retryableProviderError         = regexp.MustCompile(`(?i)overloaded|rate.?limit|too many requests|429|500|502|503|504|524|service.?unavailable|server.?error|internal.?error|provider.?returned.?error|exceeded request buffer limit while retrying upstream|network.?error|connection.?error|connection.?refused|connection.?lost|other side closed|fetch failed|getaddrinfo|ENOTFOUND|EAI_AGAIN|upstream.?connect|reset before headers|socket hang up|socket connection was closed|tls:? bad record mac|timed? out|timeout|terminated|websocket.?closed|websocket.?error|ended without|stream ended before message_stop|stream ended before a terminal response event|http2 request did not get a response|retry delay|you can retry your request|try your request again|please retry your request|ResourceExhausted`)
 )
 
 // RetryPolicy mirrors settings.retry in the coding agent.
@@ -31,9 +31,9 @@ func IsRetryableAssistantError(message AssistantMessage) bool {
 
 // RetryCallbacks are optional hooks around each retry attempt.
 type RetryCallbacks struct {
-	OnRetryScheduled   func(attempt, maxAttempts, delayMs int, errorMessage string)
+	OnRetryScheduled    func(attempt, maxAttempts, delayMs int, errorMessage string)
 	OnRetryAttemptStart func()
-	OnRetryFinished    func(success bool, attempt int, finalError string)
+	OnRetryFinished     func(success bool, attempt int, finalError string)
 }
 
 // RetryAssistantCall runs produce with bounded exponential backoff on
