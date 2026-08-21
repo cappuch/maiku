@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ArrowDown, Check, Copy, FolderOpen } from "lucide-react";
 import type { UIMessage } from "../types";
 import { Markdown, copyText } from "./Markdown";
@@ -39,6 +39,8 @@ export function Transcript({
   const [completionAnnouncement, setCompletionAnnouncement] = useState("");
   const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE_SIZE);
   const prependScrollRef = useRef<{ height: number; top: number } | null>(null);
+  const loadingEarlierRef = useRef(false);
+  const loadEarlierRef = useRef<HTMLButtonElement>(null);
   const wasStreaming = useRef(!!streaming);
   const showStream = !!streamText?.length;
   const showThinking = !!streamThinking?.trim();
@@ -88,13 +90,31 @@ export function Transcript({
     onScroll?.();
   };
 
-  const showEarlier = () => {
+  const showEarlier = useCallback(() => {
     const element = scrollRef.current;
-    if (element) {
-      prependScrollRef.current = { height: element.scrollHeight, top: element.scrollTop };
-    }
+    if (!element || loadingEarlierRef.current) return;
+    loadingEarlierRef.current = true;
+    prependScrollRef.current = { height: element.scrollHeight, top: element.scrollTop };
     setHistoryLimit((current) => current + HISTORY_PAGE_SIZE);
-  };
+  }, [scrollRef]);
+
+  // Fetch the preceding window before the user actually reaches the top. The
+  // layout effect below restores the visual anchor after variable-height
+  // Markdown/tool rows are prepended.
+  useEffect(() => {
+    const root = scrollRef.current;
+    const target = loadEarlierRef.current;
+    if (!root || !target || visibleStart === 0) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) showEarlier();
+      },
+      { root, rootMargin: "320px 0px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [scrollRef, showEarlier, visibleStart]);
 
   useLayoutEffect(() => {
     const pending = prependScrollRef.current;
@@ -102,6 +122,7 @@ export function Transcript({
     if (!pending || !element) return;
     element.scrollTop = pending.top + element.scrollHeight - pending.height;
     prependScrollRef.current = null;
+    loadingEarlierRef.current = false;
     onScroll?.();
   });
 
@@ -153,11 +174,12 @@ export function Transcript({
         <div className="mx-auto flex max-w-[760px] flex-col gap-5">
           {visibleStart > 0 ? (
             <button
+              ref={loadEarlierRef}
               type="button"
               className="mx-auto rounded-full border border-[var(--color-line)] bg-[var(--color-panel)] px-3 py-1.5 text-xs text-[var(--color-muted)] hover:border-[var(--color-accent-dim)] hover:text-[var(--color-text)]"
               onClick={showEarlier}
             >
-              Show {Math.min(HISTORY_PAGE_SIZE, visibleStart)} earlier messages
+              Load {Math.min(HISTORY_PAGE_SIZE, visibleStart)} earlier messages
             </button>
           ) : null}
           {renderedMessages.before}
