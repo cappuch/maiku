@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/mikus/maiku/ai"
 	"github.com/mikus/maiku/codingagent/core/tools"
@@ -24,21 +25,30 @@ type ProcessedFiles struct {
 var atMentionRe = regexp.MustCompile(`@(?:"([^"]+)"|'([^']+)'|([^\s@]+))`)
 
 // ExtractAtMentions returns unique file paths referenced via @ mentions in
-// text, in first-seen order. Leading @ is stripped; quoted paths keep spaces.
+// text, in first-seen order. A mention must start at a token boundary so an @
+// embedded in a pasted path, email address, or package version is not mistaken
+// for a workspace-relative file. Leading @ is stripped; quoted paths keep spaces.
 func ExtractAtMentions(text string) []string {
-	matches := atMentionRe.FindAllStringSubmatch(text, -1)
+	matches := atMentionRe.FindAllStringSubmatchIndex(text, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 	seen := make(map[string]bool, len(matches))
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
-		path := m[1]
+		if !isAtMentionBoundary(text, m[0]) {
+			continue
+		}
+
+		path := regexpSubmatch(text, m, 1)
 		if path == "" {
-			path = m[2]
+			path = regexpSubmatch(text, m, 2)
 		}
 		if path == "" {
-			path = m[3]
+			path = regexpSubmatch(text, m, 3)
+			// Unquoted mentions commonly sit next to prose/Markdown punctuation.
+			// Paths that really end in one of these characters can be quoted.
+			path = strings.TrimRight(path, ".,;:!?)]}")
 		}
 		path = strings.TrimSpace(path)
 		if path == "" || seen[path] {
@@ -52,6 +62,22 @@ func ExtractAtMentions(text string) []string {
 		out = append(out, path)
 	}
 	return out
+}
+
+func regexpSubmatch(text string, indexes []int, group int) string {
+	start := group * 2
+	if start+1 >= len(indexes) || indexes[start] < 0 {
+		return ""
+	}
+	return text[indexes[start]:indexes[start+1]]
+}
+
+func isAtMentionBoundary(text string, at int) bool {
+	if at == 0 {
+		return true
+	}
+	previous, _ := utf8.DecodeLastRuneInString(text[:at])
+	return unicode.IsSpace(previous) || strings.ContainsRune("([{", previous)
 }
 
 func hasPathRune(path string) bool {
@@ -119,7 +145,7 @@ func ProcessFileArguments(cwd string, fileArgs []string) (ProcessedFiles, error)
 // ahead of the message, and returns any image attachments. The original message
 // text is preserved so mentions remain as human-readable references.
 func ExpandAtMentions(cwd, message string) (ProcessedFiles, error) {
-	paths := ExtractAtMentions(message)
+	paths := existingFileMentions(cwd, ExtractAtMentions(message))
 	if len(paths) == 0 {
 		return ProcessedFiles{Text: message}, nil
 	}
@@ -134,4 +160,19 @@ func ExpandAtMentions(cwd, message string) (ProcessedFiles, error) {
 		Text:   processed.Text + "\n\n" + message,
 		Images: processed.Images,
 	}, nil
+}
+
+// existingFileMentions keeps implicit @ expansion from turning unrelated text
+// such as @v4 into a failing path lookup under the workspace. Picker and
+// autocomplete mentions point at existing files, while unresolved mentions are
+// left untouched for the model to interpret normally.
+func existingFileMentions(cwd string, paths []string) []string {
+	files := make([]string, 0, len(paths))
+	for _, path := range paths {
+		info, err := os.Stat(tools.ResolveReadPath(path, cwd))
+		if err == nil && !info.IsDir() {
+			files = append(files, path)
+		}
+	}
+	return files
 }

@@ -59,9 +59,10 @@ function quotePathIfNeeded(path: string) {
 /** Find the active @mention prefix ending at cursor. */
 function atPrefixAt(text: string, cursor: number): { start: number; query: string } | null {
   const before = text.slice(0, cursor);
-  const match = before.match(/@(?:"[^"]*|[^"\s]*)$/);
-  if (!match || match.index === undefined) return null;
-  return { start: match.index, query: match[0].slice(1) };
+  const match = before.match(/(^|[\s([{])(@(?:"[^"]*|[^"\s]*))$/);
+  const mention = match?.[2];
+  if (!mention) return null;
+  return { start: cursor - mention.length, query: mention.slice(1) };
 }
 
 /** Slash commands are offered while editing a single command line. */

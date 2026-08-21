@@ -20,10 +20,24 @@ func TestExtractAtMentions(t *testing.T) {
 		}
 	}
 
-	// Dedupes
+	// Dedupes.
 	got = ExtractAtMentions("@a.go @a.go")
 	if len(got) != 1 || got[0] != "a.go" {
 		t.Fatalf("dedupe failed: %v", got)
+	}
+
+	// An @ embedded in pasted text is not a file mention. In particular, a
+	// versioned path must not be reduced to "v4" and resolved under cwd.
+	got = ExtractAtMentions("/tmp/pkg@v4 user@example.com github.com/acme/lib@v4/file.go")
+	if len(got) != 0 {
+		t.Fatalf("embedded @ parsed as mentions: %v", got)
+	}
+
+	// Opening delimiters are valid mention boundaries.
+	got = ExtractAtMentions("see (@a.go) and [@b.go]")
+	want = []string{"a.go", "b.go"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("delimited mentions: got %v, want %v", got, want)
 	}
 }
 
@@ -68,6 +82,24 @@ func TestExpandAtMentions(t *testing.T) {
 	}
 	if !containsAll(got.Text, "<file path=\"a.go\">", "package a", "please review @a.go carefully") {
 		t.Fatalf("unexpected: %q", got.Text)
+	}
+}
+
+func TestExpandAtMentionsLeavesUnresolvedTextAlone(t *testing.T) {
+	dir := t.TempDir()
+	messages := []string{
+		"upgrade to @v4",
+		"inspect /outside/cache/pkg@v4/file.go",
+		"email user@example.com",
+	}
+	for _, message := range messages {
+		got, err := ExpandAtMentions(dir, message)
+		if err != nil {
+			t.Fatalf("ExpandAtMentions(%q): %v", message, err)
+		}
+		if got.Text != message || len(got.Images) != 0 {
+			t.Fatalf("ExpandAtMentions(%q) = %+v", message, got)
+		}
 	}
 }
 
