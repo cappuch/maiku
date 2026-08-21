@@ -403,12 +403,16 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 		cwd, _ = os.Getwd()
 	}
 
+	sessionID := mgr.Header().ID
 	settings := core.LoadSettings(cwd, codingagent.GetAgentDir())
 	subagents := core.NewSubagentRunner(core.SubagentToolOptions{
 		Cwd:           cwd,
 		AgentDir:      codingagent.GetAgentDir(),
 		Model:         a.model,
 		ThinkingLevel: a.thinking,
+		OnEvent: func(subagentID string, event agent.AgentEvent) {
+			a.onSubagentEvent(sessionID, subagentID, event)
+		},
 		Retry: ai.RetryPolicy{
 			Enabled:     settings.Settings.RetryEnabled(),
 			MaxRetries:  settings.Settings.RetryMaxRetries(),
@@ -449,16 +453,15 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 		},
 	})
 
-	id := mgr.Header().ID
 	live := &liveSession{
-		id:        id,
+		id:        sessionID,
 		mgr:       mgr,
 		session:   session,
 		subagents: subagents,
 	}
 	live.recomputeUsage(mgr.Messages())
 	live.unsub = session.Subscribe(func(event agent.AgentEvent) {
-		a.onAgentEvent(id, event)
+		a.onAgentEvent(sessionID, event)
 	})
 	return live, nil
 }
@@ -552,6 +555,68 @@ func (a *App) onAgentEvent(sessionID string, event agent.AgentEvent) {
 	case agent.EventAgentEnd:
 		a.emit("maiku:idle", map[string]any{"ok": true, "sessionId": sessionID})
 	}
+}
+
+// onSubagentEvent projects a child agent's internal activity onto its single
+// root tool card. Child transcripts remain independent and private to the
+// runner; the UI receives only live status, tool actions, and concise output.
+func (a *App) onSubagentEvent(sessionID, subagentID string, event agent.AgentEvent) {
+	payload := map[string]any{
+		"sessionId":  sessionID,
+		"subagentId": subagentID,
+	}
+
+	switch event.Type {
+	case agent.EventAgentStart:
+		payload["type"] = "start"
+	case agent.EventMessageUpdate:
+		if event.Message.Role != "assistant" {
+			return
+		}
+		payload["type"] = "message"
+		payload["text"] = assistantText(event.Message)
+		payload["thinking"] = assistantThinking(event.Message)
+	case agent.EventMessageEnd:
+		if event.Message.Role != "assistant" {
+			return
+		}
+		payload["type"] = "message"
+		payload["text"] = assistantText(event.Message)
+		payload["thinking"] = assistantThinking(event.Message)
+		if event.Message.StopReason == ai.StopError || event.Message.StopReason == ai.StopAborted {
+			payload["status"] = "error"
+			payload["error"] = event.Message.ErrorMessage
+		}
+	case agent.EventToolExecutionStart:
+		payload["type"] = "tool_start"
+		payload["toolCallId"] = event.ToolCallID
+		payload["toolName"] = event.ToolName
+		payload["args"] = event.Args
+	case agent.EventToolExecutionEnd:
+		payload["type"] = "tool_end"
+		payload["toolCallId"] = event.ToolCallID
+		payload["toolName"] = event.ToolName
+		payload["isError"] = event.IsError
+		if event.Result != nil {
+			var result strings.Builder
+			for _, content := range event.Result.Content {
+				if content.Type != "text" || content.Text == "" {
+					continue
+				}
+				if result.Len() > 0 {
+					result.WriteByte('\n')
+				}
+				result.WriteString(content.Text)
+			}
+			payload["result"] = result.String()
+		}
+	case agent.EventAgentEnd:
+		payload["type"] = "end"
+	default:
+		return
+	}
+
+	a.emit("maiku:subagent_event", payload)
 }
 
 func assistantText(m ai.Message) string {

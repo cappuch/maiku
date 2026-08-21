@@ -29,6 +29,23 @@ export type PickedFile = {
   data?: string;
 };
 
+export type SubagentActivity = {
+  toolCallId: string;
+  toolName: string;
+  input?: string;
+  output?: string;
+  status: "running" | "completed" | "error";
+  isError?: boolean;
+};
+
+export type SubagentView = {
+  status: "starting" | "running" | "completed" | "error";
+  activities: SubagentActivity[];
+  text?: string;
+  thinking?: string;
+  error?: string;
+};
+
 export type UIMessage = {
   id?: string;
   role: string;
@@ -38,6 +55,7 @@ export type UIMessage = {
   toolCallId?: string;
   args?: unknown;
   details?: unknown;
+  subagent?: SubagentView;
   isError?: boolean;
   streaming?: boolean;
   images?: ImageAttachment[];

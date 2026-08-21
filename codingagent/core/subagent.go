@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -73,12 +74,64 @@ type SubagentToolOptions struct {
 	OnEvent func(subagentID string, event agent.AgentEvent)
 }
 
-// SubagentToolDetails is attached to successful tool results and streaming
-// updates so hosts can identify and account for a child run.
-type SubagentToolDetails struct {
-	ID         string `json:"id"`
+// SubagentActivity is a compact, persistable description of one child tool
+// action. Inputs and outputs are summarized so reports remain useful after a
+// session reload without duplicating large file contents in session history.
+type SubagentActivity struct {
+	ToolCallID string `json:"toolCallId"`
+	ToolName   string `json:"toolName"`
+	Input      string `json:"input,omitempty"`
+	Output     string `json:"output,omitempty"`
 	Status     string `json:"status"`
-	DurationMs int64  `json:"durationMs,omitempty"`
+	IsError    bool   `json:"isError,omitempty"`
+}
+
+// SubagentToolDetails is attached to successful tool results and streaming
+// updates so hosts can identify, account for, and render a child run.
+type SubagentToolDetails struct {
+	ID         string             `json:"id"`
+	Status     string             `json:"status"`
+	DurationMs int64              `json:"durationMs,omitempty"`
+	Activities []SubagentActivity `json:"activities,omitempty"`
+}
+
+type subagentTrace struct {
+	mu         sync.Mutex
+	activities []SubagentActivity
+}
+
+func (t *subagentTrace) observe(event agent.AgentEvent) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	switch event.Type {
+	case agent.EventToolExecutionStart:
+		t.activities = append(t.activities, SubagentActivity{
+			ToolCallID: event.ToolCallID,
+			ToolName:   event.ToolName,
+			Input:      summarizeSubagentInput(event.ToolName, event.Args),
+			Status:     "running",
+		})
+	case agent.EventToolExecutionEnd:
+		for i := len(t.activities) - 1; i >= 0; i-- {
+			if t.activities[i].ToolCallID != event.ToolCallID {
+				continue
+			}
+			t.activities[i].Status = "completed"
+			t.activities[i].IsError = event.IsError
+			if event.IsError {
+				t.activities[i].Status = "error"
+			}
+			t.activities[i].Output = summarizeSubagentResult(event.Result)
+			break
+		}
+	}
+}
+
+func (t *subagentTrace) snapshot() []SubagentActivity {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]SubagentActivity(nil), t.activities...)
 }
 
 // SubagentRunner owns the lifecycle of child sessions for one root session.
@@ -209,11 +262,13 @@ func (r *SubagentRunner) run(ctx context.Context, id, task string, onUpdate agen
 		Retry:         options.Retry,
 		StreamFn:      streamFn,
 	})
-	if options.OnEvent != nil {
-		child.Subscribe(func(event agent.AgentEvent) {
+	trace := &subagentTrace{}
+	unsubscribe := child.Subscribe(func(event agent.AgentEvent) {
+		trace.observe(event)
+		if options.OnEvent != nil {
 			options.OnEvent(id, event)
-		})
-	}
+		}
+	})
 	id = r.addActive(id, child)
 	if onUpdate != nil {
 		onUpdate(agent.AgentToolResult{
@@ -222,6 +277,7 @@ func (r *SubagentRunner) run(ctx context.Context, id, task string, onUpdate agen
 		})
 	}
 	defer func() {
+		unsubscribe()
 		r.removeActive(id, child)
 		child.Dispose()
 	}()
@@ -259,6 +315,7 @@ func (r *SubagentRunner) run(ctx context.Context, id, task string, onUpdate agen
 			ID:         id,
 			Status:     "completed",
 			DurationMs: time.Since(started).Milliseconds(),
+			Activities: trace.snapshot(),
 		},
 	}
 	if usage.TotalTokens != 0 || usage.Input != 0 || usage.Output != 0 || usage.Cost.Total != 0 {
@@ -347,6 +404,53 @@ func subagentFailureReport(reason, partial string) string {
 		report += "\n\n### Partial child output\n" + partial
 	}
 	return report
+}
+
+func summarizeSubagentInput(toolName string, args map[string]any) string {
+	stringArg := func(key string) string {
+		value, _ := args[key].(string)
+		return strings.TrimSpace(value)
+	}
+	var summary string
+	switch toolName {
+	case "read", "write", "edit":
+		summary = stringArg("path")
+	case "bash":
+		summary = stringArg("command")
+	default:
+		if path := stringArg("path"); path != "" {
+			summary = path
+		} else if encoded, err := json.Marshal(args); err == nil {
+			summary = string(encoded)
+		}
+	}
+	return truncateSubagentActivity(summary, 280)
+}
+
+func summarizeSubagentResult(result *agent.AgentToolResult) string {
+	if result == nil {
+		return ""
+	}
+	var text strings.Builder
+	for _, content := range result.Content {
+		if content.Type != "text" || strings.TrimSpace(content.Text) == "" {
+			continue
+		}
+		if text.Len() > 0 {
+			text.WriteByte('\n')
+		}
+		text.WriteString(content.Text)
+	}
+	return truncateSubagentActivity(text.String(), 600)
+}
+
+func truncateSubagentActivity(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return strings.TrimSpace(string(runes[:limit])) + "…"
 }
 
 func aggregateSubagentUsage(messages []agent.AgentMessage) ai.Usage {

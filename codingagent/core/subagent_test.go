@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -142,6 +143,59 @@ func TestSubagentRunsIndependentChildAndReturnsStructuredReport(t *testing.T) {
 	details, ok := result.Details.(SubagentToolDetails)
 	if !ok || details.ID != "call-1" || details.Status != "completed" {
 		t.Fatalf("unexpected details: %#v", result.Details)
+	}
+}
+
+func TestSubagentCollectsCompactActivityForTheUI(t *testing.T) {
+	cwd := t.TempDir()
+	if err := os.WriteFile(cwd+"/notes.txt", []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	streamFn := func(model ai.Model, _ ai.Context, _ *ai.SimpleStreamOptions) *ai.AssistantMessageEventStream {
+		stream := ai.NewAssistantMessageEventStream()
+		message := ai.AssistantMessage{
+			Role: "assistant", API: model.API, Provider: model.Provider, Model: model.ID,
+		}
+		if calls.Add(1) == 1 {
+			message.Content = []ai.AssistantContentBlock{ai.ToolCallBlock(ai.ToolCall{
+				Type: "toolCall", ID: "read-1", Name: "read", Arguments: map[string]any{"path": "notes.txt"},
+			})}
+			message.StopReason = ai.StopToolUse
+		} else {
+			message.Content = []ai.AssistantContentBlock{ai.TextBlock("Activity collected.")}
+			message.StopReason = ai.StopStop
+		}
+		stream.Push(ai.AssistantMessageEvent{Type: "done", Reason: message.StopReason, Message: &message})
+		return stream
+	}
+
+	var sawToolStart, sawToolEnd bool
+	runner := NewSubagentRunner(SubagentToolOptions{
+		Cwd: cwd, AgentDir: t.TempDir(), Model: testSubagentModel(), APIKey: "test-key", StreamFn: streamFn,
+		OnEvent: func(_ string, event agent.AgentEvent) {
+			if event.Type == agent.EventToolExecutionStart {
+				sawToolStart = true
+			}
+			if event.Type == agent.EventToolExecutionEnd {
+				sawToolEnd = true
+			}
+		},
+	})
+	result, err := runner.Tool().Execute(context.Background(), "activity-call", map[string]any{"task": "read notes"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	details, ok := result.Details.(SubagentToolDetails)
+	if !ok || len(details.Activities) != 1 {
+		t.Fatalf("missing activity details: %#v", result.Details)
+	}
+	activity := details.Activities[0]
+	if activity.ToolName != "read" || activity.Input != "notes.txt" || activity.Status != "completed" || activity.Output == "" {
+		t.Fatalf("unexpected activity: %#v", activity)
+	}
+	if !sawToolStart || !sawToolEnd {
+		t.Fatalf("live event callback missed tool lifecycle: start=%v end=%v", sawToolStart, sawToolEnd)
 	}
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, ChevronDown, FilePenLine, FilePlus2, FileText, Terminal } from "lucide-react";
-import type { UIMessage } from "../types";
+import { Bot, CheckCircle2, ChevronDown, Circle, FilePenLine, FilePlus2, FileText, Loader2, Terminal, XCircle } from "lucide-react";
+import type { SubagentActivity, UIMessage } from "../types";
 import { cn } from "../lib/utils";
 import { Markdown } from "./Markdown";
 
@@ -26,26 +26,206 @@ export function ToolCallCard({ message }: { message: UIMessage }) {
 
 function SubagentCard({ message }: { message: UIMessage }) {
   const [open, setOpen] = useState(false);
+  const activityRef = useRef<HTMLDivElement>(null);
   const task = toolStringArg(message.args, "task") || "delegated task";
   const report = message.text && message.text !== "running…" ? message.text : "";
+  const persisted = useMemo(() => detailsSubagentActivities(message.details), [message.details]);
+  const activities = message.subagent?.activities.length
+    ? message.subagent.activities
+    : persisted;
+  const status = message.isError || message.subagent?.status === "error"
+    ? "error"
+    : message.streaming && message.subagent?.status !== "completed"
+      ? "running"
+      : "completed";
+  const recent = activities.slice(-3);
+  const liveNote = lastUsefulLine(message.subagent?.text || message.subagent?.thinking || "");
 
   useEffect(() => {
-    if (message.isError && report) setOpen(true);
-  }, [message.isError, report]);
+    if (open && activityRef.current) {
+      activityRef.current.scrollTop = activityRef.current.scrollHeight;
+    }
+  }, [activities.length, message.subagent?.text, message.subagent?.thinking, open]);
 
   return (
-    <ToolShell
-      icon={<Bot size={13} className="text-[var(--color-accent)]" />}
-      label={message.streaming ? "Subagent" : message.isError ? "Subagent failed" : "Subagent report"}
-      chip={task}
-      streaming={message.streaming}
-      isError={message.isError}
-      open={open}
-      onToggle={report ? () => setOpen((value) => !value) : undefined}
+    <div
+      className={cn(
+        "w-full max-w-[680px] overflow-hidden rounded-xl border bg-[color-mix(in_srgb,var(--color-panel)_82%,transparent)] transition-colors",
+        status === "error"
+          ? "border-[color-mix(in_srgb,var(--color-danger)_38%,var(--color-line))]"
+          : "border-[var(--color-line)] hover:border-[color-mix(in_srgb,var(--color-accent)_30%,var(--color-line))]",
+      )}
     >
-      {report ? <Markdown content={report} className="text-xs" /> : null}
-    </ToolShell>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="group block w-full px-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-accent-dim)]"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)]">
+            <Bot size={14} className="text-[var(--color-accent)]" />
+          </span>
+          <span className="shrink-0 text-xs font-semibold text-[var(--color-text)]">Subagent</span>
+          <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-muted)]">{task}</span>
+          <SubagentStatus status={status} />
+          <ChevronDown
+            size={14}
+            className={cn("shrink-0 text-[var(--color-muted)] transition-transform", open && "rotate-180")}
+          />
+        </div>
+
+        <div className="ml-8 mt-2 space-y-1">
+          {recent.length > 0 ? recent.map((activity) => (
+            <SubagentActivityRow key={activity.toolCallId || `${activity.toolName}-${activity.input}`} activity={activity} compact />
+          )) : (
+            <div className="flex min-w-0 items-center gap-2 text-[11px] text-[var(--color-muted)]">
+              {status === "running" ? (
+                <Loader2 size={11} className="shrink-0 animate-spin text-[var(--color-accent)]" />
+              ) : status === "error" ? (
+                <XCircle size={11} className="shrink-0 text-[var(--color-danger)]" />
+              ) : (
+                <CheckCircle2 size={11} className="shrink-0 text-[var(--color-ok)]" />
+              )}
+              <span className="truncate">
+                {liveNote || (status === "running" ? "Starting delegated work…" : status === "error" ? "The delegated task failed" : reportSummary(report))}
+              </span>
+            </div>
+          )}
+          {recent.length > 0 && status === "running" && liveNote ? (
+            <div className="truncate pl-[19px] text-[10px] text-[var(--color-muted)]/80">{liveNote}</div>
+          ) : null}
+        </div>
+      </button>
+
+      {open ? (
+        <div className="border-t border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-ink)_45%,transparent)] px-3 py-3">
+          <div className="mb-3">
+            <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">Delegated task</div>
+            <div className="whitespace-pre-wrap text-xs leading-relaxed text-[var(--color-text)]">{task}</div>
+          </div>
+
+          <div className="mb-3">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">Activity</span>
+              <span className="text-[9px] text-[var(--color-muted)]">{activities.length} action{activities.length === 1 ? "" : "s"}</span>
+            </div>
+            <div ref={activityRef} className="max-h-64 space-y-1.5 overflow-y-auto rounded-lg border border-[var(--color-line)] bg-[#0d0d0f] p-2">
+              {activities.length > 0 ? activities.map((activity) => (
+                <SubagentActivityRow key={activity.toolCallId || `${activity.toolName}-${activity.input}`} activity={activity} />
+              )) : (
+                <div className="flex items-center gap-2 px-1 py-2 text-[11px] text-[var(--color-muted)]">
+                  {status === "running" ? <Loader2 size={12} className="animate-spin text-[var(--color-accent)]" /> : <Circle size={10} />}
+                  {status === "running" ? "The subagent is investigating…" : "No tool actions were recorded."}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {(message.subagent?.thinking || message.subagent?.text) && status === "running" ? (
+            <div className="mb-3 rounded-lg border border-[var(--color-line)] bg-[#0d0d0f] p-2.5">
+              <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">Live notes</div>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-[var(--color-muted)]">
+                {message.subagent.text || message.subagent.thinking}
+              </pre>
+            </div>
+          ) : null}
+
+          {message.subagent?.error ? (
+            <div className="mb-3 rounded-lg border border-[color-mix(in_srgb,var(--color-danger)_30%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-danger)_7%,transparent)] px-2.5 py-2 text-[11px] text-[var(--color-danger)]">
+              {message.subagent.error}
+            </div>
+          ) : null}
+
+          {report ? (
+            <div>
+              <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">Final report</div>
+              <Markdown content={report} className="text-xs" />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
+}
+
+function SubagentStatus({ status }: { status: "running" | "completed" | "error" }) {
+  if (status === "running") {
+    return <span className="flex shrink-0 items-center gap-1 text-[9px] font-medium text-[var(--color-accent)]"><Loader2 size={10} className="animate-spin" /> working</span>;
+  }
+  if (status === "error") {
+    return <span className="flex shrink-0 items-center gap-1 text-[9px] font-medium text-[var(--color-danger)]"><XCircle size={10} /> failed</span>;
+  }
+  return <span className="flex shrink-0 items-center gap-1 text-[9px] font-medium text-[var(--color-ok)]"><CheckCircle2 size={10} /> done</span>;
+}
+
+function SubagentActivityRow({ activity, compact = false }: { activity: SubagentActivity; compact?: boolean }) {
+  const running = activity.status === "running";
+  const failed = activity.status === "error" || activity.isError;
+  return (
+    <div className={cn("min-w-0", compact ? "flex items-center gap-2" : "rounded-md px-1.5 py-1")}>
+      <div className="flex min-w-0 items-center gap-2">
+        {running ? (
+          <Loader2 size={11} className="shrink-0 animate-spin text-[var(--color-accent)]" />
+        ) : failed ? (
+          <XCircle size={11} className="shrink-0 text-[var(--color-danger)]" />
+        ) : (
+          <CheckCircle2 size={11} className="shrink-0 text-[var(--color-ok)]" />
+        )}
+        <span className="shrink-0 text-[10px] font-medium text-[var(--color-text)]">{subagentActionLabel(activity.toolName, running)}</span>
+        <span className={cn("min-w-0 flex-1 truncate font-mono text-[10px]", failed ? "text-[var(--color-danger)]" : "text-[var(--color-muted)]")}>
+          {activity.input || "…"}
+        </span>
+      </div>
+      {!compact && activity.output ? (
+        <pre className={cn("ml-[19px] mt-1 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-[9px] leading-relaxed", failed ? "text-[var(--color-danger)]" : "text-[var(--color-muted)]/75")}>
+          {activity.output}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
+function subagentActionLabel(name: string, running: boolean): string {
+  const labels: Record<string, [string, string]> = {
+    read: ["Reading", "Read"],
+    write: ["Writing", "Wrote"],
+    edit: ["Editing", "Edited"],
+    bash: ["Running", "Ran"],
+  };
+  const pair = labels[name.toLowerCase()];
+  if (pair) return running ? pair[0] : pair[1];
+  return running ? name : `${name} done`;
+}
+
+function detailsSubagentActivities(details: unknown): SubagentActivity[] {
+  if (!details || typeof details !== "object") return [];
+  const value = details as Record<string, unknown>;
+  const raw = value.activities ?? value.Activities;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item): SubagentActivity[] => {
+    if (!item || typeof item !== "object") return [];
+    const activity = item as Record<string, unknown>;
+    return [{
+      toolCallId: typeof activity.toolCallId === "string" ? activity.toolCallId : "",
+      toolName: typeof activity.toolName === "string" ? activity.toolName : "tool",
+      input: typeof activity.input === "string" ? activity.input : undefined,
+      output: typeof activity.output === "string" ? activity.output : undefined,
+      status: activity.status === "running" || activity.status === "error" ? activity.status : "completed",
+      isError: !!activity.isError,
+    }];
+  });
+}
+
+function lastUsefulLine(value: string): string {
+  const lines = value.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.at(-1) || "";
+}
+
+function reportSummary(report: string): string {
+  if (!report) return "Delegated work complete";
+  const line = report.split("\n").map((item) => item.trim()).find((item) => item && !item.startsWith("#"));
+  return line || "Delegated work complete";
 }
 
 function ReadCard({ message, path }: { message: UIMessage; path: string }) {

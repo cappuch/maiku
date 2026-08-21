@@ -26,6 +26,7 @@ import type {
   ImageAttachment,
   ModelInfo,
   SessionSummary,
+  SubagentActivity,
   UIMessage,
   UsageTotals,
 } from "./types";
@@ -100,9 +101,17 @@ export default function App() {
     const [s, sess] = await Promise.all([GetState(), ListSessions()]);
     if (gen !== refreshGenRef.current) return;
     const next = normalizeState(s);
+    const sameSession = focusedSessionRef.current === next.sessionId;
     focusedSessionRef.current = next.sessionId;
     setState(next);
-    setMessages(next.messages);
+    setMessages((current) => {
+      if (!sameSession) return next.messages;
+      return next.messages.map((message) => {
+        if (!message.toolCallId) return message;
+        const live = current.find((item) => item.toolCallId === message.toolCallId);
+        return live?.subagent ? { ...message, subagent: live.subagent } : message;
+      });
+    });
     setUsage(next.usage);
     setStreaming(next.streaming);
     setStreamingSessionIds(next.streamingSessionIds);
@@ -367,6 +376,80 @@ export default function App() {
           return [...prev, patch];
         });
       }),
+      EventsOn("maiku:subagent_event", (data: any) => {
+        if (!isFocused(data?.sessionId)) return;
+        const subagentId = typeof data?.subagentId === "string" ? data.subagentId : "";
+        if (!subagentId) return;
+
+        setMessages((prev) => {
+          const index = prev.findIndex(
+            (message) =>
+              message.toolCallId === subagentId &&
+              (message.toolName || "").toLowerCase() === "subagent",
+          );
+          if (index < 0) return prev;
+
+          const current = prev[index];
+          const view = current.subagent ?? {
+            status: "starting" as const,
+            activities: persistedSubagentActivities(current.details),
+          };
+          let status = view.status;
+          let activities = [...view.activities];
+          let text = view.text;
+          let thinking = view.thinking;
+          let childError = view.error;
+          const eventType = typeof data?.type === "string" ? data.type : "";
+
+          if (eventType === "start") {
+            status = "running";
+          } else if (eventType === "message") {
+            if (typeof data?.text === "string") text = truncate(data.text, 8000);
+            if (typeof data?.thinking === "string") thinking = truncate(data.thinking, 8000);
+            if (data?.status === "error") {
+              status = "error";
+              childError = typeof data?.error === "string" ? data.error : "Subagent failed";
+            }
+          } else if (eventType === "tool_start") {
+            status = "running";
+            const toolCallId = typeof data?.toolCallId === "string" ? data.toolCallId : "";
+            const activity: SubagentActivity = {
+              toolCallId,
+              toolName: typeof data?.toolName === "string" ? data.toolName : "tool",
+              input: subagentActionInput(data?.toolName, data?.args),
+              status: "running",
+            };
+            const activityIndex = activities.findIndex((item) => item.toolCallId === toolCallId);
+            if (activityIndex >= 0) activities[activityIndex] = activity;
+            else activities.push(activity);
+          } else if (eventType === "tool_end") {
+            const toolCallId = typeof data?.toolCallId === "string" ? data.toolCallId : "";
+            const activityIndex = activities.findIndex((item) => item.toolCallId === toolCallId);
+            const completed: SubagentActivity = {
+              ...(activityIndex >= 0
+                ? activities[activityIndex]
+                : {
+                    toolCallId,
+                    toolName: typeof data?.toolName === "string" ? data.toolName : "tool",
+                  }),
+              output: typeof data?.result === "string" ? truncate(data.result, 1600) : undefined,
+              status: data?.isError ? "error" : "completed",
+              isError: !!data?.isError,
+            };
+            if (activityIndex >= 0) activities[activityIndex] = completed;
+            else activities.push(completed);
+          } else if (eventType === "end" && status !== "error") {
+            status = "completed";
+          }
+
+          const next = [...prev];
+          next[index] = {
+            ...current,
+            subagent: { status, activities, text, thinking, error: childError },
+          };
+          return next;
+        });
+      }),
       EventsOn("maiku:tool_end", (data: any) => {
         if (!isFocused(data?.sessionId)) return;
         setMessages((prev) => {
@@ -564,6 +647,42 @@ export default function App() {
       onDismissError={() => setError(null)}
     />
   );
+}
+
+function persistedSubagentActivities(details: unknown): SubagentActivity[] {
+  if (!details || typeof details !== "object") return [];
+  const value = details as Record<string, unknown>;
+  const raw = value.activities ?? value.Activities;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item): SubagentActivity[] => {
+    if (!item || typeof item !== "object") return [];
+    const activity = item as Record<string, unknown>;
+    return [{
+      toolCallId: typeof activity.toolCallId === "string" ? activity.toolCallId : "",
+      toolName: typeof activity.toolName === "string" ? activity.toolName : "tool",
+      input: typeof activity.input === "string" ? activity.input : undefined,
+      output: typeof activity.output === "string" ? activity.output : undefined,
+      status: activity.status === "running" || activity.status === "error" ? activity.status : "completed",
+      isError: !!activity.isError,
+    }];
+  });
+}
+
+function subagentActionInput(toolName: unknown, rawArgs: unknown): string {
+  const parsed = parseMaybeJSON(rawArgs);
+  if (!parsed || typeof parsed !== "object") return "";
+  const args = parsed as Record<string, unknown>;
+  const name = typeof toolName === "string" ? toolName.toLowerCase() : "";
+  let value: unknown;
+  if (name === "bash") value = args.command;
+  else if (name === "read" || name === "write" || name === "edit") value = args.path;
+  else value = args.path ?? args.query ?? args.pattern;
+  if (typeof value === "string") return truncate(value.trim(), 280);
+  try {
+    return truncate(JSON.stringify(args), 280);
+  } catch {
+    return "";
+  }
 }
 
 function truncate(s: string, n: number) {
