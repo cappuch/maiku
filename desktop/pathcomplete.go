@@ -72,8 +72,8 @@ func (a *App) CompletePath(query string) []PathSuggestion {
 	lowerQuery := strings.ToLower(query)
 	var matches []PathSuggestion
 
-	_ = filepath.WalkDir(cwd, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+	_ = filepath.WalkDir(cwd, func(path string, d fs.DirEntry, _ error) error {
+		if d == nil {
 			return nil
 		}
 		name := d.Name()
@@ -83,10 +83,7 @@ func (a *App) CompletePath(query string) []PathSuggestion {
 		if path == cwd {
 			return nil
 		}
-		rel, err := filepath.Rel(cwd, path)
-		if err != nil {
-			return nil
-		}
+		rel, _ := filepath.Rel(cwd, path)
 		rel = filepath.ToSlash(rel)
 		if lowerQuery != "" && !strings.Contains(strings.ToLower(rel), lowerQuery) {
 			return nil

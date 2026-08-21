@@ -9,6 +9,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -270,16 +271,6 @@ func (a *App) emit(name string, data any) {
 		return
 	}
 	runtime.EventsEmit(a.ctx, name, data)
-}
-
-func (a *App) sessionDir() string {
-	a.mu.Lock()
-	cwd := a.cwd
-	a.mu.Unlock()
-	if cwd == "" {
-		return codingagent.GetSessionsDir()
-	}
-	return codingagent.GetDefaultSessionDir(cwd)
 }
 
 func (a *App) ensureSession() error {
@@ -726,17 +717,17 @@ func toUIMessage(m ai.Message) UIMessage {
 		}
 		return UIMessage{Role: "assistant", Text: text, Thinking: assistantThinking(m), IsError: m.StopReason == ai.StopError}
 	case "toolResult":
-		text := ""
+		var text strings.Builder
 		for _, c := range m.ToolContent {
 			if c.Type == "text" {
-				text += c.Text
+				text.WriteString(c.Text)
 			}
 		}
 		return UIMessage{
 			Role:       "toolResult",
 			ToolName:   m.ToolName,
 			ToolCallID: m.ToolCallID,
-			Text:       text,
+			Text:       text.String(),
 			Details:    m.Details,
 			IsError:    m.IsError,
 		}
@@ -779,13 +770,13 @@ func transcriptUIMessages(messages []ai.Message) []UIMessage {
 				}
 				if result, ok := resultsByID[c.ID]; ok {
 					seenResults[c.ID] = true
-					text := ""
+					var text strings.Builder
 					for _, tc := range result.ToolContent {
 						if tc.Type == "text" {
-							text += tc.Text
+							text.WriteString(tc.Text)
 						}
 					}
-					ui.Text = text
+					ui.Text = text.String()
 					ui.Details = result.Details
 					ui.IsError = result.IsError
 				}
@@ -995,13 +986,7 @@ func (a *App) ListModels() []ModelInfo {
 	for _, p := range core.AllProviders() {
 		has := auth.ResolveAPIKey(p.ID) != ""
 		for _, m := range p.Models {
-			vision := false
-			for _, in := range m.Input {
-				if in == "image" {
-					vision = true
-					break
-				}
-			}
+			vision := slices.Contains(m.Input, "image")
 			out = append(out, ModelInfo{
 				Provider:  p.ID,
 				ID:        m.ID,
