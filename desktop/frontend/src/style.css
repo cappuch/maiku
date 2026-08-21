@@ -96,11 +96,6 @@
   border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-line));
   box-shadow: inset 0 1px rgba(255,255,255,.07), 0 0 0 3px rgba(240,183,90,.08), 0 18px 42px rgba(0,0,0,.27);
 }
-/* The shell owns the focused-composer treatment. Avoid a second browser-style
-   focus rectangle around the textarea while retaining the visible outer ring. */
-.composer-shell textarea:focus-visible {
-  outline: none;
-}
 .composer-suggestions { border-radius: 14px; }
 .composer-icon-button {
   border-radius: 10px;
@@ -132,6 +127,12 @@ button {
 button:focus-visible, input:focus-visible, textarea:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
   outline-offset: 2px;
+}
+
+/* The shell owns the focused-composer treatment. Avoid a second browser-style
+   focus rectangle around the textarea while retaining the visible outer ring. */
+.composer-shell textarea:focus-visible {
+  outline: none;
 }
 
 /* Lucide icons sit on the text baseline by default; force optical center in the title bar. */
@@ -284,20 +285,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   margin: 0.75em 0;
 }
 
-.md-pre-wrap pre {
+.md-content .md-pre-wrap pre {
   margin: 0;
   overflow-x: auto;
   border: 1px solid var(--color-line);
   border-radius: 8px;
-  background: #0d0d0f !important;
+  background: #0d0d0f;
   padding: 0.85em 1em;
   font-family: var(--font-mono);
   font-size: 0.8em;
   line-height: 1.5;
 }
 
-.md-pre-wrap pre code {
-  background: transparent !important;
+.md-content .md-pre-wrap pre code {
+  background: transparent;
   padding: 0;
   font-family: inherit;
   font-size: inherit;
@@ -451,5 +452,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 @keyframes tool-pulse { 50% { opacity: .35; } }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: Accessibility overrides must win over component animations. */
+    animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: Accessibility overrides must win over component animations. */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: Accessibility overrides must win over component transitions. */
+    transition-duration: 0.01ms !important;
+  }
 }
