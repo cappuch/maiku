@@ -53,8 +53,10 @@ type App struct {
 	model    ai.Model
 	thinking agent.ThinkingLevel
 
-	live     map[string]*liveSession
-	activeID string
+	live               map[string]*liveSession
+	activeID           string
+	lastUIStreamUpdate map[string]time.Time
+	streamOffsets      map[string]uiStreamOffsets
 
 	recentDirs []string
 
@@ -111,6 +113,16 @@ type UIMessage struct {
 	Images     []ImageAttachment `json:"images,omitempty"`
 }
 
+// uiStreamOffsets tracks only byte offsets into the current response. The UI
+// bridge receives appended deltas instead of serializing the full response on
+// every token, which otherwise becomes quadratic on long generations.
+type uiStreamOffsets struct {
+	text     int
+	thinking int
+}
+
+const uiStreamUpdateInterval = 40 * time.Millisecond
+
 // ModelInfo is a catalog entry for the model selector.
 type ModelInfo struct {
 	Provider  string `json:"provider"`
@@ -145,10 +157,12 @@ func NewApp() *App {
 		cwd = wd
 	}
 	a := &App{
-		cwd:        cwd,
-		thinking:   core.DefaultThinkingLevel,
-		live:       make(map[string]*liveSession),
-		recentDirs: recentDirs,
+		cwd:                cwd,
+		thinking:           core.DefaultThinkingLevel,
+		live:               make(map[string]*liveSession),
+		lastUIStreamUpdate: make(map[string]time.Time),
+		streamOffsets:      make(map[string]uiStreamOffsets),
+		recentDirs:         recentDirs,
 	}
 	if cwd != "" {
 		a.rememberDir(cwd)
@@ -271,6 +285,52 @@ func (a *App) emit(name string, data any) {
 		return
 	}
 	runtime.EventsEmit(a.ctx, name, data)
+}
+
+// allowUIStreamUpdate caps expensive native-to-webview event traffic. Provider
+// streams can produce hundreds of tiny events per second; rendering faster
+// than a display frame only creates bridge and reconciliation backlog.
+func (a *App) allowUIStreamUpdate(key string) bool {
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.lastUIStreamUpdate == nil {
+		a.lastUIStreamUpdate = make(map[string]time.Time)
+	}
+	if last := a.lastUIStreamUpdate[key]; !last.IsZero() && now.Sub(last) < uiStreamUpdateInterval {
+		return false
+	}
+	a.lastUIStreamUpdate[key] = now
+	return true
+}
+
+// streamDeltas returns the suffix that the webview has not seen yet. If a
+// provider ever replaces/shrinks partial content, replace is true and the
+// caller sends one full snapshot to resynchronize.
+func (a *App) streamDeltas(sessionID, text, thinking string) (textDelta, thinkingDelta string, replace bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.streamOffsets == nil {
+		a.streamOffsets = make(map[string]uiStreamOffsets)
+	}
+	offsets := a.streamOffsets[sessionID]
+	if offsets.text > len(text) || offsets.thinking > len(thinking) {
+		replace = true
+		textDelta = text
+		thinkingDelta = thinking
+	} else {
+		textDelta = text[offsets.text:]
+		thinkingDelta = thinking[offsets.thinking:]
+	}
+	a.streamOffsets[sessionID] = uiStreamOffsets{text: len(text), thinking: len(thinking)}
+	return textDelta, thinkingDelta, replace
+}
+
+func (a *App) clearUIStream(sessionID string) {
+	a.mu.Lock()
+	delete(a.lastUIStreamUpdate, sessionID)
+	delete(a.streamOffsets, sessionID)
+	a.mu.Unlock()
 }
 
 func (a *App) ensureSession() error {
@@ -480,20 +540,22 @@ func rootAgentConfig(cwd, agentDir string, subagents *core.SubagentRunner, subag
 func (a *App) onAgentEvent(sessionID string, event agent.AgentEvent) {
 	switch event.Type {
 	case agent.EventMessageUpdate:
-		text := ""
-		var toolCalls []map[string]any
-		chars := 0
-		if event.Message.Role == "assistant" {
-			text = assistantText(event.Message)
-			toolCalls = partialToolCalls(event.Message)
-			chars = streamedChars(event.Message)
+		if event.Message.Role != "assistant" || !a.allowUIStreamUpdate(sessionID) {
+			return
 		}
+		text := assistantText(event.Message)
+		thinking := assistantThinking(event.Message)
+		textDelta, thinkingDelta, replace := a.streamDeltas(sessionID, text, thinking)
+		toolCalls := partialToolCalls(event.Message)
 		payload := map[string]any{
-			"sessionId": sessionID,
-			"role":      event.Message.Role,
-			"text":      text,
-			"thinking":  assistantThinking(event.Message),
-			"chars":     chars,
+			"sessionId":     sessionID,
+			"role":          event.Message.Role,
+			"textDelta":     textDelta,
+			"thinkingDelta": thinkingDelta,
+			"chars":         streamedChars(event.Message),
+		}
+		if replace {
+			payload["replace"] = true
 		}
 		if len(toolCalls) > 0 {
 			payload["toolCalls"] = toolCalls
@@ -509,6 +571,8 @@ func (a *App) onAgentEvent(sessionID string, event agent.AgentEvent) {
 		if live != nil {
 			usage = live.usage
 		}
+		delete(a.lastUIStreamUpdate, sessionID)
+		delete(a.streamOffsets, sessionID)
 		a.mu.Unlock()
 		payload := map[string]any{
 			"sessionId": sessionID,
@@ -564,7 +628,9 @@ func (a *App) onAgentEvent(sessionID string, event agent.AgentEvent) {
 			"isError":    event.IsError,
 		})
 	case agent.EventAgentEnd:
-		a.emit("maiku:idle", map[string]any{"ok": true, "sessionId": sessionID})
+		// Prompt owns the idle event and emits it after Agent has cleared its
+		// streaming state. Emitting here as well caused duplicate full refreshes.
+		a.clearUIStream(sessionID)
 	}
 }
 
@@ -581,7 +647,7 @@ func (a *App) onSubagentEvent(sessionID, subagentID string, event agent.AgentEve
 	case agent.EventAgentStart:
 		payload["type"] = "start"
 	case agent.EventMessageUpdate:
-		if event.Message.Role != "assistant" {
+		if event.Message.Role != "assistant" || !a.allowUIStreamUpdate("subagent:"+sessionID+":"+subagentID) {
 			return
 		}
 		payload["type"] = "message"
@@ -591,6 +657,7 @@ func (a *App) onSubagentEvent(sessionID, subagentID string, event agent.AgentEve
 		if event.Message.Role != "assistant" {
 			return
 		}
+		a.clearUIStream("subagent:" + sessionID + ":" + subagentID)
 		payload["type"] = "message"
 		payload["text"] = assistantText(event.Message)
 		payload["thinking"] = assistantThinking(event.Message)
@@ -952,6 +1019,15 @@ func (a *App) GetState() AppState {
 				if st.StreamingMessage != nil {
 					streamText = assistantText(*st.StreamingMessage)
 					streamThinking = assistantThinking(*st.StreamingMessage)
+					// GetState is the frontend's new baseline when it focuses a
+					// background run. Continue deltas after that exact snapshot rather
+					// than replaying content the frontend just loaded.
+					if a.streamOffsets == nil {
+						a.streamOffsets = make(map[string]uiStreamOffsets)
+					}
+					a.streamOffsets[sessionID] = uiStreamOffsets{
+						text: len(streamText), thinking: len(streamThinking),
+					}
 				}
 				messages = hydrateStreamingTools(messages, st)
 			}

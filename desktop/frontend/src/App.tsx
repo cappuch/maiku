@@ -113,9 +113,14 @@ export default function App() {
     setState(next);
     setMessages((current) => {
       if (!sameSession) return next.messages;
+      const liveByToolCall = new Map(
+        current
+          .filter((message) => message.toolCallId && message.subagent)
+          .map((message) => [message.toolCallId, message] as const),
+      );
       return next.messages.map((message) => {
         if (!message.toolCallId) return message;
-        const live = current.find((item) => item.toolCallId === message.toolCallId);
+        const live = liveByToolCall.get(message.toolCallId);
         return live?.subagent ? { ...message, subagent: live.subagent } : message;
       });
     });
@@ -174,11 +179,30 @@ export default function App() {
 
         if (data?.role === "assistant") {
           setStreaming(true);
-          setStreamText(data.text || "");
-          const thinking =
-            typeof data.thinking === "string" ? data.thinking : "";
-          setStreamThinking(thinking);
-          if (thinking) {
+          const replace = data?.replace === true;
+          const hasTextDelta = typeof data?.textDelta === "string";
+          const textDelta = hasTextDelta ? data.textDelta : "";
+          const thinkingDelta =
+            typeof data?.thinkingDelta === "string" ? data.thinkingDelta : "";
+          setStreamText((current) =>
+            hasTextDelta
+              ? replace
+                ? textDelta
+                : current + textDelta
+              : typeof data?.text === "string"
+                ? data.text
+                : current,
+          );
+          setStreamThinking((current) =>
+            typeof data?.thinkingDelta === "string"
+              ? replace
+                ? thinkingDelta
+                : current + thinkingDelta
+              : typeof data?.thinking === "string"
+                ? data.thinking
+                : current,
+          );
+          if (thinkingDelta || (typeof data?.thinking === "string" && data.thinking)) {
             setThinkingStartedAt((prev) => prev ?? Date.now());
           }
           // Measure live generation speed: chars delta / elapsed, ~4 chars per token.
@@ -524,7 +548,17 @@ export default function App() {
         streamRef.current = null;
         rateSamplesRef.current = [];
         setTokensPerSec(0);
-        refresh().catch(() => {});
+        setState((current) =>
+          current
+            ? { ...current, streaming: false, streamText: "", streamThinking: "" }
+            : current,
+        );
+        // The transcript is already projected incrementally from agent events.
+        // Re-fetching it here made every completed turn serialize and rebuild
+        // the entire chat, which is especially painful for long sessions.
+        ListSessions()
+          .then((sess) => setSessions((sess as SessionSummary[]) || []))
+          .catch(() => {});
       }),
       EventsOn("maiku:error", (data) => {
         const sid = data?.sessionId as string | undefined;
@@ -537,7 +571,7 @@ export default function App() {
     return () => {
       for (const off of offs) off?.();
     };
-  }, [refresh, isFocused]);
+  }, [isFocused]);
 
   const onTranscriptScroll = useCallback(() => {
     const el = scrollRef.current;

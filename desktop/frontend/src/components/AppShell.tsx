@@ -424,6 +424,7 @@ export function AppShell(props: Props) {
           )}
 
           <Transcript
+            key={state.sessionId || state.cwd || "new"}
             messages={messages}
             scrollRef={scrollRef}
             onScroll={props.onTranscriptScroll}

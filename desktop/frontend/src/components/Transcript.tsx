@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ArrowDown, Check, Copy, FolderOpen } from "lucide-react";
 import type { UIMessage } from "../types";
 import { Markdown, copyText } from "./Markdown";
@@ -8,6 +8,7 @@ import { LoadingGrid } from "./LoadingGrid";
 import { StreamingText } from "./StreamingText";
 
 const JUMP_THRESHOLD = 48;
+const HISTORY_PAGE_SIZE = 120;
 
 export function Transcript({
   messages,
@@ -36,6 +37,8 @@ export function Transcript({
 }) {
   const [showJump, setShowJump] = useState(false);
   const [completionAnnouncement, setCompletionAnnouncement] = useState("");
+  const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE_SIZE);
+  const prependScrollRef = useRef<{ height: number; top: number } | null>(null);
   const wasStreaming = useRef(!!streaming);
   const showStream = !!streamText?.length;
   const showThinking = !!streamThinking?.trim();
@@ -66,6 +69,8 @@ export function Transcript({
     }
   }
 
+  const visibleStart = Math.max(0, messages.length - historyLimit);
+
   const handleScroll = () => {
     const element = scrollRef.current;
     if (element) {
@@ -83,13 +88,40 @@ export function Transcript({
     onScroll?.();
   };
 
-  const renderMessages = (items: UIMessage[], offset = 0) =>
-    items.map((message, index) => (
-      <MessageRow
-        key={message.id || (message.toolCallId ? `tool-${message.toolCallId}` : `${message.role}-${offset + index}`)}
-        message={message}
-      />
-    ));
+  const showEarlier = () => {
+    const element = scrollRef.current;
+    if (element) {
+      prependScrollRef.current = { height: element.scrollHeight, top: element.scrollTop };
+    }
+    setHistoryLimit((current) => current + HISTORY_PAGE_SIZE);
+  };
+
+  useLayoutEffect(() => {
+    const pending = prependScrollRef.current;
+    const element = scrollRef.current;
+    if (!pending || !element) return;
+    element.scrollTop = pending.top + element.scrollHeight - pending.height;
+    prependScrollRef.current = null;
+    onScroll?.();
+  });
+
+  // Stream text changes frequently while finalized history usually does not.
+  // Reuse the historical element tree instead of remapping a long transcript
+  // for every generated chunk.
+  const renderedMessages = useMemo(() => {
+    const render = (items: UIMessage[], offset: number) =>
+      items.map((message, index) => (
+        <MessageRow
+          key={message.id || (message.toolCallId ? `tool-${message.toolCallId}` : `${message.role}-${offset + index}`)}
+          message={message}
+        />
+      ));
+    const visibleActivityStart = Math.max(visibleStart, liveActivityStart);
+    return {
+      before: render(messages.slice(visibleStart, visibleActivityStart), visibleStart),
+      after: render(messages.slice(visibleActivityStart), visibleActivityStart),
+    };
+  }, [messages, liveActivityStart, visibleStart]);
 
   const isEmpty = messages.length === 0 && !showThinking && !showStream && !streaming;
 
@@ -119,7 +151,16 @@ export function Transcript({
           </div>
         )}
         <div className="mx-auto flex max-w-[760px] flex-col gap-5">
-          {renderMessages(messages.slice(0, liveActivityStart))}
+          {visibleStart > 0 ? (
+            <button
+              type="button"
+              className="mx-auto rounded-full border border-[var(--color-line)] bg-[var(--color-panel)] px-3 py-1.5 text-xs text-[var(--color-muted)] hover:border-[var(--color-accent-dim)] hover:text-[var(--color-text)]"
+              onClick={showEarlier}
+            >
+              Show {Math.min(HISTORY_PAGE_SIZE, visibleStart)} earlier messages
+            </button>
+          ) : null}
+          {renderedMessages.before}
           {showThinking && (
             <ThinkingLive
               thinking={streamThinking ?? ""}
@@ -135,7 +176,7 @@ export function Transcript({
               </div>
             </div>
           )}
-          {renderMessages(messages.slice(liveActivityStart), liveActivityStart)}
+          {renderedMessages.after}
         </div>
       </div>
 
@@ -154,9 +195,10 @@ export function Transcript({
   );
 }
 
-function MessageRow({ message }: { message: UIMessage }) {
+const MessageRow = memo(function MessageRow({ message }: { message: UIMessage }) {
+  let content: ReactNode;
   if (message.role === "user") {
-    return (
+    content = (
       <div className="flex justify-end">
         <div className="user-message max-w-[85%] space-y-2 px-4 py-2.5 text-sm leading-relaxed">
           {message.images && message.images.length > 0 && (
@@ -167,6 +209,7 @@ function MessageRow({ message }: { message: UIMessage }) {
                   src={`data:${image.mimeType};base64,${image.data}`}
                   alt={image.name || "attachment"}
                   className="max-h-40 max-w-full rounded-lg border border-[var(--color-line)] object-contain"
+                  loading="lazy"
                 />
               ))}
             </div>
@@ -175,26 +218,26 @@ function MessageRow({ message }: { message: UIMessage }) {
         </div>
       </div>
     );
-  }
-
-  if (message.role === "tool" || message.role === "toolResult") {
-    return <ToolCallCard message={message} />;
-  }
-
-  return (
-    <>
-      {message.thinking ? <ThinkingLive thinking={message.thinking} live={false} /> : null}
-      {(message.text || message.streaming) && (
-        <div className="assistant-response group flex justify-start">
-          <div className="assistant-message w-full max-w-[90%]">
-            <Markdown content={message.text || ""} streaming={message.streaming} />
-            {message.text && !message.streaming ? <ResponseActions text={message.text} /> : null}
+  } else if (message.role === "tool" || message.role === "toolResult") {
+    content = <ToolCallCard message={message} />;
+  } else {
+    content = (
+      <>
+        {message.thinking ? <ThinkingLive thinking={message.thinking} live={false} /> : null}
+        {(message.text || message.streaming) && (
+          <div className="assistant-response group flex justify-start">
+            <div className="assistant-message w-full max-w-[90%]">
+              <Markdown content={message.text || ""} streaming={message.streaming} />
+              {message.text && !message.streaming ? <ResponseActions text={message.text} /> : null}
+            </div>
           </div>
-        </div>
-      )}
-    </>
-  );
-}
+        )}
+      </>
+    );
+  }
+
+  return <div className="transcript-row flex flex-col gap-5">{content}</div>;
+});
 
 function ResponseActions({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);

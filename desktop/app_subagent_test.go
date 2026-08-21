@@ -40,6 +40,31 @@ func TestRootAgentConfigHonorsSubagentSetting(t *testing.T) {
 	}
 }
 
+func TestUIStreamDeltasAvoidCumulativePayloads(t *testing.T) {
+	app := &App{}
+
+	text, thinking, replace := app.streamDeltas("session", "hello", "")
+	if text != "hello" || thinking != "" || replace {
+		t.Fatalf("first delta = (%q, %q, %v)", text, thinking, replace)
+	}
+
+	text, thinking, replace = app.streamDeltas("session", "hello world", "plan")
+	if text != " world" || thinking != "plan" || replace {
+		t.Fatalf("appended delta = (%q, %q, %v)", text, thinking, replace)
+	}
+
+	text, thinking, replace = app.streamDeltas("session", "new", "")
+	if text != "new" || thinking != "" || !replace {
+		t.Fatalf("replacement delta = (%q, %q, %v)", text, thinking, replace)
+	}
+
+	app.clearUIStream("session")
+	text, _, replace = app.streamDeltas("session", "fresh", "")
+	if text != "fresh" || replace {
+		t.Fatalf("delta after clear = (%q, %v)", text, replace)
+	}
+}
+
 func TestSetSubagentEnabledUpdatesLiveSessions(t *testing.T) {
 	cwd := t.TempDir()
 	agentDir := t.TempDir()

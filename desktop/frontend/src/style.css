@@ -65,6 +65,13 @@
   scrollbar-gutter: stable;
 }
 
+/* Keep old turns in the DOM for native find/selection, but let the webview
+   skip layout and paint work for rows far outside the viewport. */
+.transcript-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+
 .user-message {
   border: 1px solid rgba(255,255,255,.055);
   border-radius: 18px 18px 6px 18px;
