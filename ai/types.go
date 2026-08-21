@@ -1,6 +1,8 @@
 // Package ai is a Go port of @earendil-works/pi-ai (core types and streaming contracts).
 package ai
 
+import "strings"
+
 import "encoding/json"
 
 // Known API identifiers.
@@ -401,28 +403,28 @@ func ContentText(content any) string {
 	case string:
 		return v
 	case []any:
-		var out string
+		var out strings.Builder
 		for _, item := range v {
 			switch item := item.(type) {
 			case string:
-				out += item
+				out.WriteString(item)
 			case TextContent:
-				out += item.Text
+				out.WriteString(item.Text)
 			case map[string]any:
 				if item["type"] == "text" {
 					if t, ok := item["text"].(string); ok {
-						out += t
+						out.WriteString(t)
 					}
 				}
 			}
 		}
-		return out
+		return out.String()
 	case []TextContent:
-		var out string
+		var out strings.Builder
 		for _, t := range v {
-			out += t.Text
+			out.WriteString(t.Text)
 		}
-		return out
+		return out.String()
 	default:
 		return ""
 	}
@@ -430,13 +432,13 @@ func ContentText(content any) string {
 
 // AssistantText concatenates text blocks from an assistant message.
 func AssistantText(m AssistantMessage) string {
-	var out string
+	var out strings.Builder
 	for _, b := range m.Content {
 		if b.Type == "text" {
-			out += b.Text
+			out.WriteString(b.Text)
 		}
 	}
-	return out
+	return out.String()
 }
 
 // Tools / context

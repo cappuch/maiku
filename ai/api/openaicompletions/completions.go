@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -231,7 +232,7 @@ func run(out *ai.AssistantMessageEventStream, model ai.Model, ctxData ai.Context
 		}
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if opts.OnResponse != nil {
 		hdrs := map[string]string{}
@@ -607,7 +608,7 @@ func convertUserMessage(content any) chatMessage {
 				parts = append(parts, textPart{Type: "text", Text: item.Text})
 			case ai.ImageContent:
 				parts = append(parts, imageURLPart{
-					Type: "image_url",
+					Type:     "image_url",
 					ImageURL: imageURLRef{URL: fmt.Sprintf("data:%s;base64,%s", item.MimeType, item.Data)},
 				})
 			case map[string]any:
@@ -695,10 +696,7 @@ func parseUsage(u chunkUsage, model ai.Model) ai.Usage {
 		cacheRead = u.PromptTokensDetails.CachedTokens
 		cacheWrite = u.PromptTokensDetails.CacheWriteTokens
 	}
-	input := u.PromptTokens - cacheRead - cacheWrite
-	if input < 0 {
-		input = 0
-	}
+	input := max(u.PromptTokens-cacheRead-cacheWrite, 0)
 	usage := ai.Usage{
 		Input:      input,
 		Output:     u.CompletionTokens,
@@ -757,11 +755,12 @@ func closeDanglingJSON(s string) string {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if inString {
-			if escaped {
+			switch {
+			case escaped:
 				escaped = false
-			} else if c == '\\' {
+			case c == '\\':
 				escaped = true
-			} else if c == '"' {
+			case c == '"':
 				inString = false
 			}
 			continue
@@ -800,8 +799,8 @@ func closeDanglingJSON(s string) string {
 			result = result[:idx+1]
 		}
 	}
-	for i := len(stack) - 1; i >= 0; i-- {
-		switch stack[i] {
+	for _, s := range slices.Backward(stack) {
+		switch s {
 		case '{':
 			result += "}"
 		case '[':

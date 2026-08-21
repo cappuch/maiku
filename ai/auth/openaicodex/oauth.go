@@ -14,14 +14,14 @@ import (
 )
 
 const (
-	clientID             = "app_EMoamEEZ73f0CkXaXp7hrann"
-	authBaseURL          = "https://auth.openai.com"
-	tokenURL             = authBaseURL + "/oauth/token"
-	deviceUserCodeURL    = authBaseURL + "/api/accounts/deviceauth/usercode"
-	deviceTokenURL       = authBaseURL + "/api/accounts/deviceauth/token"
+	clientID              = "app_EMoamEEZ73f0CkXaXp7hrann"
+	authBaseURL           = "https://auth.openai.com"
+	tokenURL              = authBaseURL + "/oauth/token"
+	deviceUserCodeURL     = authBaseURL + "/api/accounts/deviceauth/usercode"
+	deviceTokenURL        = authBaseURL + "/api/accounts/deviceauth/token"
 	deviceVerificationURI = authBaseURL + "/codex/device"
-	deviceRedirectURI    = authBaseURL + "/deviceauth/callback"
-	deviceCodeTimeout    = 15 * time.Minute
+	deviceRedirectURI     = authBaseURL + "/deviceauth/callback"
+	deviceCodeTimeout     = 15 * time.Minute
 )
 
 // flexibleSeconds unmarshals either a JSON number (seconds) or a JSON string
@@ -72,18 +72,24 @@ func StartDeviceAuth(ctx context.Context) (*DeviceAuth, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode == 404 {
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	closeErr := resp.Body.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("openai-codex device code login is not enabled for this server")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("openai-codex device code request failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var parsed struct {
-		DeviceAuthID string           `json:"device_auth_id"`
-		UserCode     string           `json:"user_code"`
-		Interval     flexibleSeconds  `json:"interval"`
+		DeviceAuthID string          `json:"device_auth_id"`
+		UserCode     string          `json:"user_code"`
+		Interval     flexibleSeconds `json:"interval"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, err
@@ -131,10 +137,16 @@ func PollDeviceAuth(ctx context.Context, device *DeviceAuth) (*Token, error) {
 		if err != nil {
 			return nil, err
 		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		closeErr := resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
 
-		if resp.StatusCode == 200 {
+		if resp.StatusCode == http.StatusOK {
 			var parsed struct {
 				AuthorizationCode string `json:"authorization_code"`
 				CodeVerifier      string `json:"code_verifier"`
@@ -148,7 +160,7 @@ func PollDeviceAuth(ctx context.Context, device *DeviceAuth) (*Token, error) {
 			return ExchangeAuthorizationCode(ctx, parsed.AuthorizationCode, parsed.CodeVerifier, deviceRedirectURI)
 		}
 
-		if resp.StatusCode == 403 || resp.StatusCode == 404 {
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -224,8 +236,14 @@ func postToken(ctx context.Context, form url.Values, operation string) (*Token, 
 	if err != nil {
 		return nil, fmt.Errorf("openai-codex token %s error: %w", operation, err)
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	closeErr := resp.Body.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("openai-codex token %s failed (%d): %s", operation, resp.StatusCode, strings.TrimSpace(string(body)))
 	}

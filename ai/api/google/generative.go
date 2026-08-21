@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -79,9 +80,9 @@ type thinkingConfig struct {
 }
 
 type generationConfig struct {
-	Temperature      *float64        `json:"temperature,omitempty"`
-	MaxOutputTokens  int             `json:"maxOutputTokens,omitempty"`
-	ThinkingConfig   *thinkingConfig `json:"thinkingConfig,omitempty"`
+	Temperature     *float64        `json:"temperature,omitempty"`
+	MaxOutputTokens int             `json:"maxOutputTokens,omitempty"`
+	ThinkingConfig  *thinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
 type systemInstruction struct {
@@ -109,9 +110,9 @@ type streamCandidate struct {
 }
 
 type generateContentResponse struct {
-	ResponseID    string         `json:"responseId"`
+	ResponseID    string            `json:"responseId"`
 	Candidates    []streamCandidate `json:"candidates"`
-	UsageMetadata *usageMetadata `json:"usageMetadata"`
+	UsageMetadata *usageMetadata    `json:"usageMetadata"`
 }
 
 // Stream implements ai.StreamFn for the Google Generative AI API.
@@ -216,7 +217,7 @@ func run(out *ai.AssistantMessageEventStream, model ai.Model, ctxData ai.Context
 		}
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if opts.OnResponse != nil {
 		hdrs := map[string]string{}
@@ -585,13 +586,7 @@ func thinkingBudgetFor(modelID string, level ai.ThinkingLevel, custom *ai.Thinki
 
 func convertMessages(model ai.Model, ctxData ai.Context) []geminiContent {
 	var out []geminiContent
-	supportsImage := false
-	for _, in := range model.Input {
-		if in == "image" {
-			supportsImage = true
-			break
-		}
-	}
+	supportsImage := slices.Contains(model.Input, "image")
 
 	for i := 0; i < len(ctxData.Messages); i++ {
 		m := ctxData.Messages[i]
@@ -824,10 +819,7 @@ func resolveThoughtSignature(sameProviderAndModel bool, signature string) string
 
 func parseUsage(u usageMetadata, model ai.Model) ai.Usage {
 	cacheRead := u.CachedContentTokenCount
-	input := u.PromptTokenCount - cacheRead
-	if input < 0 {
-		input = 0
-	}
+	input := max(u.PromptTokenCount-cacheRead, 0)
 	output := u.CandidatesTokenCount + u.ThoughtsTokenCount
 	usage := ai.Usage{
 		Input:     input,

@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,19 +49,19 @@ type textParam struct {
 }
 
 type responsesRequest struct {
-	Model              string          `json:"model"`
-	Instructions       string          `json:"instructions,omitempty"`
-	Input              []any           `json:"input"`
-	Stream             bool            `json:"stream"`
-	Store              bool            `json:"store"`
-	Tools              []responsesTool `json:"tools,omitempty"`
-	ToolChoice         string          `json:"tool_choice,omitempty"`
-	ParallelToolCalls  bool            `json:"parallel_tool_calls,omitempty"`
-	Temperature        *float64        `json:"temperature,omitempty"`
-	Reasoning          *reasoningParam `json:"reasoning,omitempty"`
-	Text               *textParam      `json:"text,omitempty"`
-	Include            []string        `json:"include,omitempty"`
-	PromptCacheKey     string          `json:"prompt_cache_key,omitempty"`
+	Model             string          `json:"model"`
+	Instructions      string          `json:"instructions,omitempty"`
+	Input             []any           `json:"input"`
+	Stream            bool            `json:"stream"`
+	Store             bool            `json:"store"`
+	Tools             []responsesTool `json:"tools,omitempty"`
+	ToolChoice        string          `json:"tool_choice,omitempty"`
+	ParallelToolCalls bool            `json:"parallel_tool_calls,omitempty"`
+	Temperature       *float64        `json:"temperature,omitempty"`
+	Reasoning         *reasoningParam `json:"reasoning,omitempty"`
+	Text              *textParam      `json:"text,omitempty"`
+	Include           []string        `json:"include,omitempty"`
+	PromptCacheKey    string          `json:"prompt_cache_key,omitempty"`
 }
 
 // Input item shapes (marshaled as elements of responsesRequest.Input).
@@ -285,7 +286,7 @@ func run(out *ai.AssistantMessageEventStream, model ai.Model, ctxData ai.Context
 		}
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if opts.OnResponse != nil {
 		hdrs := map[string]string{}
@@ -440,7 +441,7 @@ func processEvent(out *ai.AssistantMessageEventStream, msg *ai.AssistantMessage,
 			}
 			var item responseItem
 			if err := json.Unmarshal(ev.Item, &item); err != nil {
-				return nil
+				return fmt.Errorf("decode added response item: %w", err)
 			}
 			createSlot(*ev.OutputIndex, item, ev.Item)
 
@@ -513,7 +514,7 @@ func processEvent(out *ai.AssistantMessageEventStream, msg *ai.AssistantMessage,
 			}
 			var item responseItem
 			if err := json.Unmarshal(ev.Item, &item); err != nil {
-				return nil
+				return fmt.Errorf("decode completed response item: %w", err)
 			}
 			if item.Phase == "final_answer" {
 				msg.StopReason = ai.StopStop
@@ -595,10 +596,7 @@ func finalizeResponse(msg *ai.AssistantMessage, model ai.Model, resp *responseOb
 			cacheRead = resp.Usage.InputTokensDetails.CachedTokens
 			cacheWrite = resp.Usage.InputTokensDetails.CacheWriteTokens
 		}
-		input := resp.Usage.InputTokens - cacheRead - cacheWrite
-		if input < 0 {
-			input = 0
-		}
+		input := max(resp.Usage.InputTokens-cacheRead-cacheWrite, 0)
 		usage := ai.Usage{
 			Input:       input,
 			Output:      resp.Usage.OutputTokens,
@@ -799,10 +797,7 @@ func sanitizeCodexError(body []byte, status int) string {
 		}
 		when := ""
 		if err.ResetsAt > 0 {
-			mins := (err.ResetsAt*1000 - time.Now().UnixMilli()) / 60000
-			if mins < 0 {
-				mins = 0
-			}
+			mins := max((err.ResetsAt*1000-time.Now().UnixMilli())/60000, 0)
 			when = fmt.Sprintf(" Try again in ~%d min.", mins)
 		}
 		return fmt.Sprintf("You have hit your ChatGPT usage limit%s.%s", plan, when)
@@ -1057,13 +1052,7 @@ func convertToolResultOutput(model ai.Model, content []ai.ToolResultContent) any
 		}
 	}
 	text := strings.Join(texts, "\n")
-	supportsImages := false
-	for _, in := range model.Input {
-		if in == "image" {
-			supportsImages = true
-			break
-		}
-	}
+	supportsImages := slices.Contains(model.Input, "image")
 	if len(images) == 0 || !supportsImages {
 		if text != "" {
 			return text
@@ -1140,11 +1129,12 @@ func closeDanglingJSON(s string) string {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if inString {
-			if escaped {
+			switch {
+			case escaped:
 				escaped = false
-			} else if c == '\\' {
+			case c == '\\':
 				escaped = true
-			} else if c == '"' {
+			case c == '"':
 				inString = false
 			}
 			continue
@@ -1183,8 +1173,8 @@ func closeDanglingJSON(s string) string {
 			result = result[:idx+1]
 		}
 	}
-	for i := len(stack) - 1; i >= 0; i-- {
-		switch stack[i] {
+	for _, s := range slices.Backward(stack) {
+		switch s {
 		case '{':
 			result += "}"
 		case '[':

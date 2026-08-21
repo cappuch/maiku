@@ -22,9 +22,9 @@ func TestExtractAccountID(t *testing.T) {
 
 func TestResolveCodexURL(t *testing.T) {
 	cases := map[string]string{
-		"https://chatgpt.com/backend-api":               "https://chatgpt.com/backend-api/codex/responses",
-		"https://chatgpt.com/backend-api/":              "https://chatgpt.com/backend-api/codex/responses",
-		"https://chatgpt.com/backend-api/codex":         "https://chatgpt.com/backend-api/codex/responses",
+		"https://chatgpt.com/backend-api":                 "https://chatgpt.com/backend-api/codex/responses",
+		"https://chatgpt.com/backend-api/":                "https://chatgpt.com/backend-api/codex/responses",
+		"https://chatgpt.com/backend-api/codex":           "https://chatgpt.com/backend-api/codex/responses",
 		"https://chatgpt.com/backend-api/codex/responses": "https://chatgpt.com/backend-api/codex/responses",
 	}
 	for in, want := range cases {

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -212,7 +213,7 @@ func run(out *ai.AssistantMessageEventStream, model ai.Model, ctxData ai.Context
 		}
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if opts.OnResponse != nil {
 		hdrs := map[string]string{}
@@ -461,16 +462,10 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 	}
 
 	if thinkingEnabled {
-		budget := ai.ThinkingBudgetFor(opts.Reasoning, opts.ThinkingBudgets)
-		if budget < 1024 {
-			budget = 1024
-		}
+		budget := max(ai.ThinkingBudgetFor(opts.Reasoning, opts.ThinkingBudgets), 1024)
 		// Thinking tokens count against max_tokens — add the budget on top of
 		// the answer allotment so reasoning cannot starve the reply.
-		req.MaxTokens = ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets)
-		if req.MaxTokens < budget+1024 {
-			req.MaxTokens = budget + 1024
-		}
+		req.MaxTokens = max(ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets), budget+1024)
 		req.Thinking = &anthropicThinkingConfig{Type: "enabled", BudgetTokens: budget}
 	} else if model.Reasoning {
 		req.Thinking = &anthropicThinkingConfig{Type: "disabled"}
@@ -569,21 +564,18 @@ func convertMessages(messages []ai.Message, cacheControl json.RawMessage, cacheE
 	if cacheEnabled && len(out) > 0 {
 		last := &out[len(out)-1]
 		if last.Role == "user" {
-			switch blocks := last.Content.(type) {
-			case []any:
-				if len(blocks) > 0 {
-					lastBlock := blocks[len(blocks)-1]
-					switch b := lastBlock.(type) {
-					case anthropicTextBlock:
-						b.CacheControl = cacheControl
-						blocks[len(blocks)-1] = b
-					case anthropicImageBlock:
-						b.CacheControl = cacheControl
-						blocks[len(blocks)-1] = b
-					case anthropicToolResultBlock:
-						b.CacheControl = cacheControl
-						blocks[len(blocks)-1] = b
-					}
+			if blocks, ok := last.Content.([]any); ok && len(blocks) > 0 {
+				lastBlock := blocks[len(blocks)-1]
+				switch b := lastBlock.(type) {
+				case anthropicTextBlock:
+					b.CacheControl = cacheControl
+					blocks[len(blocks)-1] = b
+				case anthropicImageBlock:
+					b.CacheControl = cacheControl
+					blocks[len(blocks)-1] = b
+				case anthropicToolResultBlock:
+					b.CacheControl = cacheControl
+					blocks[len(blocks)-1] = b
 				}
 			}
 		}
@@ -747,7 +739,7 @@ func handleContentBlockStart(out *ai.AssistantMessageEventStream, msg *ai.Assist
 	cbType, _ := cb["type"].(string)
 
 	var newBlock ai.AssistantContentBlock
-	eventType := ""
+	var eventType string
 	switch cbType {
 	case "text":
 		text, _ := cb["text"].(string)
@@ -917,11 +909,12 @@ func closeDanglingJSON(s string) string {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if inString {
-			if escaped {
+			switch {
+			case escaped:
 				escaped = false
-			} else if c == '\\' {
+			case c == '\\':
 				escaped = true
-			} else if c == '"' {
+			case c == '"':
 				inString = false
 			}
 			continue
@@ -963,8 +956,8 @@ func closeDanglingJSON(s string) string {
 			result = result[:idx+1]
 		}
 	}
-	for i := len(stack) - 1; i >= 0; i-- {
-		switch stack[i] {
+	for _, s := range slices.Backward(stack) {
+		switch s {
 		case '{':
 			result += "}"
 		case '[':

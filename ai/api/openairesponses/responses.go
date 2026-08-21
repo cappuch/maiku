@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -262,7 +263,7 @@ func run(out *ai.AssistantMessageEventStream, model ai.Model, ctxData ai.Context
 		}
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if opts.OnResponse != nil {
 		hdrs := map[string]string{}
@@ -417,7 +418,7 @@ func processEvent(out *ai.AssistantMessageEventStream, msg *ai.AssistantMessage,
 			}
 			var item responseItem
 			if err := json.Unmarshal(ev.Item, &item); err != nil {
-				return nil
+				return fmt.Errorf("decode added response item: %w", err)
 			}
 			createSlot(*ev.OutputIndex, item, ev.Item)
 
@@ -490,7 +491,7 @@ func processEvent(out *ai.AssistantMessageEventStream, msg *ai.AssistantMessage,
 			}
 			var item responseItem
 			if err := json.Unmarshal(ev.Item, &item); err != nil {
-				return nil
+				return fmt.Errorf("decode completed response item: %w", err)
 			}
 			if item.Phase == "final_answer" {
 				msg.StopReason = ai.StopStop
@@ -572,10 +573,7 @@ func finalizeResponse(msg *ai.AssistantMessage, model ai.Model, resp *responseOb
 			cacheRead = resp.Usage.InputTokensDetails.CachedTokens
 			cacheWrite = resp.Usage.InputTokensDetails.CacheWriteTokens
 		}
-		input := resp.Usage.InputTokens - cacheRead - cacheWrite
-		if input < 0 {
-			input = 0
-		}
+		input := max(resp.Usage.InputTokens-cacheRead-cacheWrite, 0)
 		usage := ai.Usage{
 			Input:       input,
 			Output:      resp.Usage.OutputTokens,
@@ -748,10 +746,7 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 	if model.Reasoning && opts.Reasoning != "" && opts.Reasoning != ai.ThinkingOff {
 		req.Reasoning = &reasoningParam{Effort: mapReasoningEffort(model, opts.Reasoning), Summary: "auto"}
 		req.Include = []string{"reasoning.encrypted_content"}
-		req.MaxOutputTokens = ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets)
-		if req.MaxOutputTokens < minOutputTokens {
-			req.MaxOutputTokens = minOutputTokens
-		}
+		req.MaxOutputTokens = max(ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets), minOutputTokens)
 	}
 
 	return req
@@ -928,13 +923,7 @@ func convertToolResultOutput(model ai.Model, content []ai.ToolResultContent) any
 		}
 	}
 	text := strings.Join(texts, "\n")
-	supportsImages := false
-	for _, in := range model.Input {
-		if in == "image" {
-			supportsImages = true
-			break
-		}
-	}
+	supportsImages := slices.Contains(model.Input, "image")
 	if len(images) == 0 || !supportsImages {
 		if text != "" {
 			return text
@@ -1011,11 +1000,12 @@ func closeDanglingJSON(s string) string {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if inString {
-			if escaped {
+			switch {
+			case escaped:
 				escaped = false
-			} else if c == '\\' {
+			case c == '\\':
 				escaped = true
-			} else if c == '"' {
+			case c == '"':
 				inString = false
 			}
 			continue
@@ -1054,8 +1044,8 @@ func closeDanglingJSON(s string) string {
 			result = result[:idx+1]
 		}
 	}
-	for i := len(stack) - 1; i >= 0; i-- {
-		switch stack[i] {
+	for _, s := range slices.Backward(stack) {
+		switch s {
 		case '{':
 			result += "}"
 		case '[':

@@ -149,13 +149,12 @@ func TestRollingLastMessageBreakpoint(t *testing.T) {
 	// No stop-assistant breakpoints on earlier blocks: verify only the last message has it.
 	var guard int
 	for _, m := range req.Messages {
-		switch bl := m.Content.(type) {
-		case []any:
-			for _, b := range bl {
-				if tb, ok := b.(anthropicTextBlock); ok && len(tb.CacheControl) > 0 {
+		if blocks, ok := m.Content.([]any); ok {
+			for _, block := range blocks {
+				if textBlock, ok := block.(anthropicTextBlock); ok && len(textBlock.CacheControl) > 0 {
 					guard++
 				}
-				if tb, ok := b.(anthropicToolResultBlock); ok && len(tb.CacheControl) > 0 {
+				if toolBlock, ok := block.(anthropicToolResultBlock); ok && len(toolBlock.CacheControl) > 0 {
 					guard++
 				}
 			}

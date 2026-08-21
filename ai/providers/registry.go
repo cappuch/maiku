@@ -6,8 +6,8 @@ package providers
 import (
 	_ "github.com/mikus/maiku/ai/api/anthropic"
 	_ "github.com/mikus/maiku/ai/api/google"
-	_ "github.com/mikus/maiku/ai/api/openaicompletions"
 	_ "github.com/mikus/maiku/ai/api/openaicodex"
+	_ "github.com/mikus/maiku/ai/api/openaicompletions"
 	_ "github.com/mikus/maiku/ai/api/openairesponses"
 
 	"github.com/mikus/maiku/ai"
