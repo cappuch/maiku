@@ -478,11 +478,21 @@ func (a *App) onAgentEvent(sessionID string, event agent.AgentEvent) {
 			usage = live.usage
 		}
 		a.mu.Unlock()
-		a.emit("maiku:message_end", map[string]any{
+		payload := map[string]any{
 			"sessionId": sessionID,
 			"message":   toUIMessage(event.Message),
 			"usage":     usage,
-		})
+		}
+		// Tool cards are created from message_update before this event reaches
+		// the UI. Include their ids so the frontend can insert the completed
+		// assistant content before those cards instead of appending its thinking
+		// underneath them.
+		if event.Message.Role == "assistant" {
+			if ids := assistantToolCallIDs(event.Message); len(ids) > 0 {
+				payload["toolCallIds"] = ids
+			}
+		}
+		a.emit("maiku:message_end", payload)
 	case agent.EventToolExecutionStart:
 		args, _ := json.Marshal(event.Args)
 		a.emit("maiku:tool_start", map[string]any{
@@ -547,6 +557,16 @@ func assistantThinking(m ai.Message) string {
 		}
 	}
 	return b.String()
+}
+
+func assistantToolCallIDs(m ai.Message) []string {
+	var ids []string
+	for _, c := range m.AssistantContent {
+		if c.Type == "toolCall" && c.ID != "" {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
 }
 
 // streamedChars counts the characters streamed so far (text + thinking +

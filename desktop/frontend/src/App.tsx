@@ -232,6 +232,9 @@ export default function App() {
         if (!isFocused(sid)) return;
 
         const msg = data?.message as UIMessage | undefined;
+        const toolCallIds = Array.isArray(data?.toolCallIds)
+          ? data.toolCallIds.filter((id: unknown): id is string => typeof id === "string" && id !== "")
+          : [];
         if (msg) {
           setMessages((prev) => {
             // Avoid duplicating the optimistic user bubble we already appended.
@@ -271,7 +274,28 @@ export default function App() {
             // Skip empty assistant shells (tool-only turns already have cards).
             if (msg.role === "assistant" && !msg.text && !msg.thinking) return prev;
             if (msg.role === "toolResult") return prev;
-            return [...prev, { ...msg, streaming: false }];
+
+            const completed = { ...msg, streaming: false };
+            if (msg.role === "assistant" && toolCallIds.length > 0) {
+              // message_update creates tool cards while this assistant message
+              // is still streaming. Keep the completed thinking/text in its
+              // real chronological position: immediately before its tools.
+              const ids = new Set(toolCallIds);
+              const firstTool = prev.findIndex(
+                (message) =>
+                  !!message.toolCallId &&
+                  ids.has(message.toolCallId) &&
+                  (message.role === "tool" || message.role === "toolResult"),
+              );
+              if (firstTool >= 0) {
+                return [
+                  ...prev.slice(0, firstTool),
+                  completed,
+                  ...prev.slice(firstTool),
+                ];
+              }
+            }
+            return [...prev, completed];
           });
         }
         if (data?.usage) setUsage(data.usage);
