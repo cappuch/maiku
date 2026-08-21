@@ -27,13 +27,20 @@ export function Transcript({
   // Show the live thinking panel while reasoning is streaming and before
   // visible response text arrives.
   const showThinking = !!(streamThinking && streamThinking.trim()) && !showStream;
+  // A partial assistant message can expose its tool calls before message_end.
+  // Keep that message's live reasoning immediately before only those in-flight
+  // cards. Completed tools belong to an earlier turn, so reasoning that starts
+  // after their results must stay below them.
   let liveActivityStart = messages.length;
   if (showThinking) {
-    while (
-      liveActivityStart > 0 &&
-      (messages[liveActivityStart - 1].role === "tool" ||
-        messages[liveActivityStart - 1].role === "toolResult")
-    ) {
+    while (liveActivityStart > 0) {
+      const message = messages[liveActivityStart - 1];
+      if (
+        !message.streaming ||
+        (message.role !== "tool" && message.role !== "toolResult")
+      ) {
+        break;
+      }
       liveActivityStart -= 1;
     }
   }
@@ -104,14 +111,16 @@ function MessageRow({ message }: { message: UIMessage }) {
       {message.thinking ? (
         <ThinkingLive thinking={message.thinking} live={false} />
       ) : null}
-      <div className="flex justify-start">
-        <div className="assistant-message max-w-[90%]">
-          <Markdown content={message.text || ""} />
-          {message.streaming && (
-            <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-[var(--color-accent)] align-middle" />
-          )}
+      {(message.text || message.streaming) && (
+        <div className="flex justify-start">
+          <div className="assistant-message max-w-[90%]">
+            <Markdown content={message.text || ""} />
+            {message.streaming && (
+              <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-[var(--color-accent)] align-middle" />
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }
