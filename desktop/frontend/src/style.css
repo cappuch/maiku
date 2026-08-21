@@ -48,10 +48,7 @@
 }
 
 .app-shell {
-  background:
-    radial-gradient(circle at 78% -12%, rgba(240, 183, 90, .075), transparent 30%),
-    radial-gradient(circle at 42% 110%, rgba(112, 87, 170, .05), transparent 32%),
-    var(--color-ink);
+  background: var(--color-ink);
 }
 
 .titlebar-drag, .status-bar {
@@ -66,7 +63,6 @@
 
 .transcript {
   scrollbar-gutter: stable;
-  mask-image: linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 8px), transparent 100%);
 }
 
 .user-message {
@@ -468,21 +464,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .tool-shell-error .tool-chip { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
 
 .empty-state { animation: fade-up .5s cubic-bezier(.23,1,.32,1) both; }
-.empty-orb {
-  display: grid;
-  width: 48px;
-  height: 48px;
-  margin: 0 auto 18px;
-  place-items: center;
-  border: 1px solid rgba(240, 183, 90, .2);
-  border-radius: 15px;
-  background: linear-gradient(145deg, rgba(240, 183, 90, .15), rgba(240, 183, 90, .025));
-  box-shadow: 0 14px 45px rgba(240, 183, 90, .09), inset 0 1px rgba(255,255,255,.09);
-  color: var(--color-accent);
-  font: 600 23px/1 var(--font-mono);
-  transform: rotate(-3deg);
-}
-.empty-orb span { transform: rotate(3deg); }
 .empty-greeting {
   font-size: 28px;
   font-weight: 650;
@@ -504,7 +485,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   margin-top: 20px;
   border: 1px solid color-mix(in srgb, var(--color-accent) 55%, var(--color-line));
   border-radius: 11px;
-  background: linear-gradient(180deg, #f3c16e, var(--color-accent));
+  background: var(--color-accent);
   box-shadow: 0 10px 24px rgba(240,183,90,.17), inset 0 1px rgba(255,255,255,.35);
   padding: 9px 12px;
   color: #21180b;
@@ -518,9 +499,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   position: relative;
   z-index: 2;
   display: flex;
-  height: 0;
   align-items: center;
-  margin-top: 3px;
+  margin-top: 8px;
   opacity: .38;
   transition: opacity .15s ease;
 }
@@ -566,7 +546,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 18px;
-  background: radial-gradient(circle at 50% 42%, rgba(240,183,90,.09), transparent 28%), var(--color-ink);
+  background: var(--color-ink);
 }
 .startup-mark {
   display: grid;

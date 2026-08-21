@@ -102,10 +102,7 @@ export function Transcript({
         className="transcript h-full overflow-y-auto px-6 py-7"
       >
         {isEmpty && (
-          <div className="empty-state mx-auto mt-[13vh] max-w-xl text-center">
-            <div className="empty-orb" aria-hidden>
-              <span>m</span>
-            </div>
+          <div className="empty-state mx-auto mt-[16vh] max-w-xl text-center">
             <p className="empty-greeting">{greeting || "Hey there"}</p>
             <p className="empty-subtitle">
               {hasWorkspace
