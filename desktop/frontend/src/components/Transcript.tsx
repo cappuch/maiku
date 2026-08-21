@@ -28,7 +28,7 @@ export function Transcript({
   const showStream = !!(streamText && streamText.length > 0);
   // Show the live thinking panel while reasoning is streaming and before
   // visible response text arrives.
-  const showThinking = !!(streamThinking && streamThinking.trim()) && !showStream;
+  const showThinking = !!streamThinking?.trim() && !showStream;
   // A partial assistant message can expose its tool calls before message_end.
   // Keep that message's live reasoning immediately before only those in-flight
   // cards. Completed tools belong to an earlier turn, so reasoning that starts
@@ -69,14 +69,14 @@ export function Transcript({
       <div className="mx-auto flex max-w-[760px] flex-col gap-5">
         {renderMessages(messages.slice(0, liveActivityStart))}
         {showThinking && (
-          <ThinkingLive thinking={streamThinking!} startedAt={thinkingStartedAt ?? null} />
+          <ThinkingLive thinking={streamThinking ?? ""} startedAt={thinkingStartedAt ?? null} />
         )}
         {renderMessages(messages.slice(liveActivityStart), liveActivityStart)}
         {streaming && !showThinking && !showStream && <LoadingGrid />}
         {showStream && (
           <div className="flex justify-start">
             <div className="assistant-message max-w-[90%]">
-              <StreamingText content={streamText!} />
+              <StreamingText content={streamText ?? ""} />
             </div>
           </div>
         )}
@@ -92,9 +92,9 @@ function MessageRow({ message }: { message: UIMessage }) {
         <div className="user-message max-w-[85%] space-y-2 px-4 py-2.5 text-sm leading-relaxed">
           {message.images && message.images.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {message.images.map((img, i) => (
+              {message.images.map((img) => (
                 <img
-                  key={`${img.name || "img"}-${i}`}
+                  key={`${img.name || "img"}-${img.mimeType}-${img.data}`}
                   src={`data:${img.mimeType};base64,${img.data}`}
                   alt={img.name || "attachment"}
                   className="max-h-40 max-w-full rounded-lg border border-[var(--color-line)] object-contain"

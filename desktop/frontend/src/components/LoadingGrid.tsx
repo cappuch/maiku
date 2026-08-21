@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 
-const delays = Array.from({ length: 9 }, (_, i) => {
-  const row = Math.floor(i / 3);
-  const col = i % 3;
-  return (col + Math.abs(row - 1)) * 90;
+const cells = Array.from({ length: 9 }, (_, index) => {
+  const row = Math.floor(index / 3);
+  const column = index % 3;
+  return {
+    id: `${row}-${column}`,
+    delay: (column + Math.abs(row - 1)) * 90,
+  };
 });
 
 export function LoadingGrid({ label = "Working" }: { label?: string }) {
@@ -16,8 +19,8 @@ export function LoadingGrid({ label = "Working" }: { label?: string }) {
   return (
     <div className="live-loader" aria-live="polite">
       <span aria-hidden className="pixel-grid">
-        {delays.map((delay, index) => (
-          <span key={index} style={{ animationDelay: `${delay}ms` }} />
+        {cells.map((cell) => (
+          <span key={cell.id} style={{ animationDelay: `${cell.delay}ms` }} />
         ))}
       </span>
       <span className="live-loader-label">{label}</span>

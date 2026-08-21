@@ -45,7 +45,7 @@ function SubagentCard({ message }: { message: UIMessage }) {
     if (open && activityRef.current) {
       activityRef.current.scrollTop = activityRef.current.scrollHeight;
     }
-  }, [activities.length, message.subagent?.text, message.subagent?.thinking, open]);
+  });
 
   return (
     <div
@@ -253,7 +253,10 @@ function ReadCard({ message, path }: { message: UIMessage; path: string }) {
 
 function WriteCard({ message, path }: { message: UIMessage; path: string }) {
   const content = toolStringArg(message.args, "content");
-  const lines = useMemo(() => splitLines(content), [content]);
+  const lines = useMemo(
+    () => splitLines(content).map((text, index) => ({ lineNumber: index + 1, text })),
+    [content],
+  );
   const [open, setOpen] = useState(!!message.streaming);
   const preRef = useRef<HTMLPreElement>(null);
 
@@ -265,7 +268,7 @@ function WriteCard({ message, path }: { message: UIMessage; path: string }) {
     if (open && message.streaming && preRef.current) {
       preRef.current.scrollTop = preRef.current.scrollHeight;
     }
-  }, [content, open, message.streaming]);
+  });
 
   return (
     <ToolShell
@@ -288,13 +291,13 @@ function WriteCard({ message, path }: { message: UIMessage; path: string }) {
                 {message.streaming ? "generating…" : "(empty)"}
               </div>
             ) : (
-              lines.map((line, i) => (
-                <div key={i} className="flex">
+              lines.map((line) => (
+                <div key={line.lineNumber} className="flex">
                   <span className="sticky left-0 w-10 shrink-0 select-none bg-[#0d0d0f] px-2 text-right text-[var(--color-muted)]/60">
-                    {i + 1}
+                    {line.lineNumber}
                   </span>
                   <span className="flex-1 whitespace-pre-wrap break-all pr-3 text-[var(--color-text)]">
-                    {line || " "}
+                    {line.text || " "}
                   </span>
                 </div>
               ))
@@ -342,9 +345,9 @@ function EditCard({ message, path }: { message: UIMessage; path: string }) {
             </div>
           ) : removalOnly ? (
             <div className="max-h-72 overflow-auto font-mono text-[11px] leading-[1.45]">
-              {sides.map((row, i) => (
+              {sides.map((row) => (
                 <div
-                  key={i}
+                  key={row.id}
                   className={cn(
                     "flex min-h-[1.45em]",
                     row.left?.kind === "del"
@@ -365,8 +368,8 @@ function EditCard({ message, path }: { message: UIMessage; path: string }) {
                 <div className="border-r border-[var(--color-line)] px-2 py-1">before</div>
                 <div className="px-2 py-1">after</div>
               </div>
-              {sides.map((row, i) => (
-                <div key={i} className="grid grid-cols-2 font-mono text-[11px] leading-[1.45]">
+              {sides.map((row) => (
+                <div key={row.id} className="grid grid-cols-2 font-mono text-[11px] leading-[1.45]">
                   <SideCell side="left" cell={row.left} />
                   <SideCell side="right" cell={row.right} />
                 </div>
@@ -477,7 +480,7 @@ function ToolShell({
         {icon}
         <span className="shrink-0 font-medium text-[var(--color-text)]">{label}</span>
         <span className="tool-chip min-w-0 flex-1 truncate">{chip}</span>
-        {streaming && <span className="tool-working" aria-label="Running">…</span>}
+        {streaming && <span className="tool-working" role="status" aria-label="Running">…</span>}
         {isError && <span className="text-[var(--color-danger)]">error</span>}
         {clickable && (
           <ChevronDown
@@ -559,6 +562,7 @@ type SideCellData = {
 };
 
 type SideBySideRow = {
+  id: string;
   left?: SideCellData;
   right?: SideCellData;
 };
@@ -593,7 +597,7 @@ function unifiedToSideBySide(rows: DiffRow[]): SideBySideRow[] {
     }
     if (row.kind === "ctx") {
       const cell: SideCellData = { kind: "ctx", lineNum: row.lineNum, text: row.text };
-      out.push({ left: cell, right: { ...cell } });
+      out.push({ id: `diff-${i}`, left: cell, right: { ...cell } });
       i++;
       continue;
     }
@@ -610,7 +614,7 @@ function unifiedToSideBySide(rows: DiffRow[]): SideBySideRow[] {
         const right = adds[j]
           ? ({ kind: "add", lineNum: adds[j].lineNum, text: adds[j].text } as SideCellData)
           : undefined;
-        out.push({ left, right });
+        out.push({ id: `diff-${i}-${j}`, left, right });
       }
       continue;
     }
@@ -643,12 +647,13 @@ function editsToSideBySide(args: unknown): SideBySideRow[] {
   }
 
   const out: SideBySideRow[] = [];
-  for (const e of edits) {
-    const left = splitLines(e.oldText || "");
-    const right = splitLines(e.newText || "");
+  for (const [editIndex, edit] of edits.entries()) {
+    const left = splitLines(edit.oldText || "");
+    const right = splitLines(edit.newText || "");
     const n = Math.max(left.length, right.length);
     for (let i = 0; i < n; i++) {
       out.push({
+        id: `edit-${editIndex}-${i}`,
         left:
           i < left.length
             ? { kind: "del", text: left[i], lineNum: String(i + 1) }

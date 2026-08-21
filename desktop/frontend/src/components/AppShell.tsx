@@ -287,11 +287,10 @@ export function AppShell(props: Props) {
                       active && "bg-[var(--color-panel-2)] shadow-[inset_0_1px_rgba(255,255,255,.06)] ring-1 ring-[var(--color-line)]",
                       isStreaming && "session-streaming",
                     )}
-                    onContextMenu={(e) => openCtxMenu(e, s.path)}
                   >
                     {editing ? (
                       <input
-                        autoFocus
+                        ref={(input) => input?.focus()}
                         defaultValue={s.name || s.preview || s.id.slice(0, 8)}
                         className="w-full rounded-md border border-[var(--color-accent-dim)] bg-[var(--color-panel-2)] px-2 py-1.5 text-xs text-[var(--color-text)] outline-none"
                         onKeyDown={(e) => {
@@ -314,6 +313,7 @@ export function AppShell(props: Props) {
                       <button
                         type="button"
                         onClick={() => props.onOpenSession(s.path)}
+                        onContextMenu={(e) => openCtxMenu(e, s.path)}
                         className="flex w-full items-center rounded-lg px-2 py-2 text-left transition-colors hover:bg-[var(--color-panel-2)]"
                         title={s.path}
                       >
@@ -470,7 +470,7 @@ function Stat({
 }
 
 function formatRate(r: number) {
-  if (!isFinite(r) || r <= 0) return "0";
+  if (!Number.isFinite(r) || r <= 0) return "0";
   return r >= 100 ? Math.round(r).toString() : r.toFixed(1);
 }
 

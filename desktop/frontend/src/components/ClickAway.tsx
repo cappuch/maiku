@@ -14,7 +14,10 @@ export function ClickAway({
   onContextMenu?: (e: MouseEvent) => void;
 }) {
   return (
-    <div
+    <button
+      type="button"
+      aria-label="Close popover"
+      tabIndex={-1}
       data-wails-no-drag
       className="fixed inset-0 z-40"
       onClick={onClose}
