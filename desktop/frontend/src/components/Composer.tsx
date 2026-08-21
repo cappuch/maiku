@@ -5,6 +5,25 @@ import type { ImageAttachment, PathSuggestion } from "../types";
 
 export type ComposerAttachment = ImageAttachment & { id: string };
 
+type CommandSuggestion = {
+  kind: "command";
+  value: string;
+  label: string;
+  description: string;
+};
+
+type FileSuggestion = PathSuggestion & { kind: "file" };
+type ComposerSuggestion = CommandSuggestion | FileSuggestion;
+
+const commands: CommandSuggestion[] = [
+  {
+    kind: "command",
+    value: "/compact",
+    label: "/compact",
+    description: "Summarize older conversation history to free context",
+  },
+];
+
 let attachmentSeq = 0;
 function nextAttachmentId() {
   attachmentSeq += 1;
@@ -21,6 +40,13 @@ function atPrefixAt(text: string, cursor: number): { start: number; query: strin
   const match = before.match(/@(?:"[^"]*|[^"\s]*)$/);
   if (!match || match.index === undefined) return null;
   return { start: match.index, query: match[0].slice(1) };
+}
+
+/** Slash commands are offered only for the first, otherwise-empty token. */
+function commandPrefixAt(text: string, cursor: number): { start: number; query: string } | null {
+  const match = text.slice(0, cursor).match(/^\/([^\s/]*)$/);
+  if (!match) return null;
+  return { start: 0, query: match[1].toLowerCase() };
 }
 
 async function fileToAttachment(file: File): Promise<ComposerAttachment | null> {
@@ -41,18 +67,20 @@ export function Composer({
   streaming,
   disabled,
   onSend,
+  onCommand,
   onAbort,
 }: {
   streaming: boolean;
   disabled?: boolean;
   onSend: (text: string, images: ImageAttachment[]) => void;
+  onCommand: (command: string) => void;
   onAbort: () => void;
 }) {
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const [suggestions, setSuggestions] = useState<PathSuggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<ComposerSuggestion[]>([]);
   const [suggestIndex, setSuggestIndex] = useState(0);
-  const [atRange, setAtRange] = useState<{ start: number; end: number } | null>(null);
+  const [suggestRange, setSuggestRange] = useState<{ start: number; end: number } | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const suggestReq = useRef(0);
   const suggestListRef = useRef<HTMLDivElement>(null);
@@ -82,37 +110,56 @@ export function Composer({
   }, [suggestIndex, suggestions]);
 
   const refreshSuggestions = async (text: string, cursor: number) => {
+    const commandPrefix = commandPrefixAt(text, cursor);
+    if (commandPrefix && !disabled) {
+      // Invalidate any slower path-completion request that is still in flight.
+      ++suggestReq.current;
+      const matches = commands.filter((command) =>
+        command.value.slice(1).startsWith(commandPrefix.query),
+      );
+      setSuggestions(matches);
+      setSuggestIndex(0);
+      setSuggestRange({ start: commandPrefix.start, end: cursor });
+      return;
+    }
+
     const prefix = atPrefixAt(text, cursor);
     if (!prefix || disabled) {
+      ++suggestReq.current;
       setSuggestions([]);
-      setAtRange(null);
+      setSuggestRange(null);
       return;
     }
     const req = ++suggestReq.current;
     try {
       const items = (await CompletePath(prefix.query)) || [];
       if (req !== suggestReq.current) return;
-      setSuggestions(items);
+      setSuggestions(items.map((item) => ({ ...item, kind: "file" as const })));
       setSuggestIndex(0);
-      setAtRange({ start: prefix.start, end: cursor });
+      setSuggestRange({ start: prefix.start, end: cursor });
     } catch {
       if (req !== suggestReq.current) return;
       setSuggestions([]);
-      setAtRange(null);
+      setSuggestRange(null);
     }
   };
 
-  const applySuggestion = (item: PathSuggestion) => {
+  const applySuggestion = (item: ComposerSuggestion) => {
     const el = ref.current;
-    if (!el || !atRange) return;
-    const before = value.slice(0, atRange.start);
-    const after = value.slice(atRange.end);
-    const insert = item.isDirectory ? item.value : `${item.value} `;
+    if (!el || !suggestRange) return;
+    const before = value.slice(0, suggestRange.start);
+    const after = value.slice(suggestRange.end);
+    const insert =
+      item.kind === "command"
+        ? item.value
+        : item.isDirectory
+          ? item.value
+          : `${item.value} `;
     const next = before + insert + after;
     const cursor = before.length + insert.length;
     setValue(next);
     setSuggestions([]);
-    setAtRange(null);
+    setSuggestRange(null);
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(cursor, cursor);
@@ -172,11 +219,18 @@ export function Composer({
   const submit = () => {
     const text = value.trim();
     if ((!text && attachments.length === 0) || streaming || disabled) return;
+    if (text === "/compact") {
+      setValue("");
+      setSuggestions([]);
+      setSuggestRange(null);
+      onCommand("compact");
+      return;
+    }
     const images = attachments.map(({ mimeType, data, name }) => ({ mimeType, data, name }));
     setValue("");
     setAttachments([]);
     setSuggestions([]);
-    setAtRange(null);
+    setSuggestRange(null);
     onSend(text, images);
   };
 
@@ -192,21 +246,31 @@ export function Composer({
           >
             {suggestions.map((s, i) => (
               <button
-                key={s.value + s.label}
+                key={s.kind + s.value + s.label}
                 type="button"
                 onMouseDown={(e) => {
                   e.preventDefault();
                   applySuggestion(s);
                 }}
                 className={
-                  "flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-xs " +
+                  "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs " +
                   (i === suggestIndex
                     ? "bg-[var(--color-accent)]/14 text-[var(--color-text)]"
                     : "text-[var(--color-muted)] hover:bg-white/[.045]")
                 }
               >
-                <span className="truncate">{s.label}</span>
-                {s.isDirectory && <span className="ml-auto text-[10px] opacity-60">dir</span>}
+                {s.kind === "command" ? (
+                  <>
+                    <Command size={13} className="shrink-0" />
+                    <span className="shrink-0 font-mono text-[var(--color-text)]">{s.label}</span>
+                    <span className="truncate text-[11px] opacity-70">{s.description}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="truncate font-mono">{s.label}</span>
+                    {s.isDirectory && <span className="ml-auto text-[10px] opacity-60">dir</span>}
+                  </>
+                )}
               </button>
             ))}
           </div>
@@ -256,7 +320,7 @@ export function Composer({
               placeholder={
                 disabled
                   ? "Open a folder to start…"
-                  : "Message maiku… (@file to inject, paste images)"
+                  : "Message maiku… (@ files, / commands, paste images)"
               }
               onChange={(e) => {
                 const next = e.target.value;
@@ -274,7 +338,14 @@ export function Composer({
               }}
               onPaste={onPaste}
               onKeyDown={(e) => {
-                if (suggestions.length > 0 && atRange) {
+                // Once a command is complete, Enter runs it rather than merely
+                // re-selecting the still-visible autocomplete row.
+                if (e.key === "Enter" && !e.shiftKey && value.trim() === "/compact") {
+                  e.preventDefault();
+                  submit();
+                  return;
+                }
+                if (suggestions.length > 0 && suggestRange) {
                   if (e.key === "ArrowDown") {
                     e.preventDefault();
                     setSuggestIndex((i) => (i + 1) % suggestions.length);
@@ -293,7 +364,7 @@ export function Composer({
                   if (e.key === "Escape") {
                     e.preventDefault();
                     setSuggestions([]);
-                    setAtRange(null);
+                    setSuggestRange(null);
                     return;
                   }
                 }
@@ -328,7 +399,7 @@ export function Composer({
           <div className="flex items-center justify-between px-3 pb-2 text-[10px] text-[var(--color-muted)]">
             <span className="flex items-center gap-2.5">
               <span className="flex items-center gap-1"><AtSign size={10} /> files</span>
-              <span className="flex items-center gap-1"><Command size={10} /> actions</span>
+              <span className="flex items-center gap-1"><Command size={10} /> commands</span>
             </span>
             <span>↵ send <span className="opacity-55">·</span> ⇧↵ new line</span>
           </div>

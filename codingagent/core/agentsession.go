@@ -292,27 +292,36 @@ func (s *AgentSession) MaybeCompact(ctx context.Context) error {
 		return nil
 	}
 
-	messages := s.agent.State().Messages
+	_, err := s.Compact(ctx)
+	if errors.Is(err, compaction.ErrNothingToCompact) {
+		return nil
+	}
+	return err
+}
+
+// Compact immediately summarizes older conversation history, regardless of
+// the automatic compaction threshold. It returns ErrNothingToCompact when the
+// configured recent-history budget already covers the whole transcript.
+func (s *AgentSession) Compact(ctx context.Context) (compaction.Result, error) {
+	state := s.agent.State()
+	messages := state.Messages
 	result, err := compaction.Compact(ctx, compaction.Options{
 		Messages:        messages,
 		Model:           s.model,
 		Settings:        s.compaction,
 		APIKey:          s.apiKey,
-		ThinkingLevel:   s.agent.State().ThinkingLevel,
+		ThinkingLevel:   state.ThinkingLevel,
 		PreviousSummary: compaction.ExtractPreviousSummary(messages),
 	})
 	if err != nil {
-		if errors.Is(err, compaction.ErrNothingToCompact) {
-			return nil
-		}
-		return err
+		return compaction.Result{}, err
 	}
 
 	s.agent.SetMessages(result.Messages)
 	if s.onCompaction != nil {
 		s.onCompaction(result)
 	}
-	return nil
+	return result, nil
 }
 
 // State returns a snapshot of the agent state.

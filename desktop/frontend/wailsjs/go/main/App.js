@@ -14,6 +14,10 @@ export function CancelOpenAICodexLogin() {
   return window['go']['main']['App']['CancelOpenAICodexLogin']();
 }
 
+export function Compact() {
+  return window['go']['main']['App']['Compact']();
+}
+
 export function CompletePath(arg1) {
   return window['go']['main']['App']['CompletePath'](arg1);
 }

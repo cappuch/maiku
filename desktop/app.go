@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -307,7 +308,7 @@ func (a *App) leaveActiveLocked() {
 		a.activeID = ""
 		return
 	}
-	if prev.session != nil && prev.session.State().IsStreaming {
+	if prev.cancel != nil || (prev.session != nil && prev.session.State().IsStreaming) {
 		a.activeID = ""
 		return
 	}
@@ -773,7 +774,7 @@ func (live *liveSession) recomputeUsage(messages []ai.Message) {
 func (a *App) streamingSessionIDsLocked() []string {
 	var out []string
 	for id, live := range a.live {
-		if live != nil && live.session != nil && live.session.State().IsStreaming {
+		if live != nil && (live.cancel != nil || (live.session != nil && live.session.State().IsStreaming)) {
 			out = append(out, id)
 		}
 	}
@@ -836,8 +837,8 @@ func (a *App) GetState() AppState {
 		usage = live.usage
 		if live.session != nil {
 			st := live.session.State()
-			streaming = st.IsStreaming
-			if streaming {
+			streaming = live.cancel != nil || st.IsStreaming
+			if st.IsStreaming {
 				if st.StreamingMessage != nil {
 					streamText = assistantText(*st.StreamingMessage)
 					streamThinking = assistantThinking(*st.StreamingMessage)
@@ -1318,7 +1319,108 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 	return nil
 }
 
-// Abort cancels the in-flight prompt on the focused session only.
+// Compact immediately summarizes older history in the focused session. The
+// command runs in the background and uses the same busy/abort lifecycle as a
+// prompt so the UI remains responsive while the summary is generated.
+func (a *App) Compact() error {
+	if err := a.ensureSession(); err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	live := a.activeLocked()
+	if live == nil || live.session == nil {
+		a.mu.Unlock()
+		return fmt.Errorf("no active session")
+	}
+	if live.cancel != nil || live.session.State().IsStreaming {
+		a.mu.Unlock()
+		return fmt.Errorf("already streaming")
+	}
+	if auth.ResolveAPIKey(a.model.Provider) == "" {
+		provider := a.model.Provider
+		a.mu.Unlock()
+		return fmt.Errorf("no API key for provider %q — add one in Settings", provider)
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	live.cancel = cancel
+	live.promptGen++
+	promptGen := live.promptGen
+	sessionID := live.id
+	session := live.session
+	a.mu.Unlock()
+
+	a.emit("maiku:compaction_start", map[string]any{"sessionId": sessionID})
+	go func() {
+		defer func() {
+			a.mu.Lock()
+			cur := a.live[sessionID]
+			activeCommand := cur != nil && cur.promptGen == promptGen
+			if activeCommand {
+				cur.cancel = nil
+			}
+			// Drop idle background lives — next open reloads from disk.
+			if cur != nil && a.activeID != sessionID {
+				if cur.session == nil || !cur.session.State().IsStreaming {
+					a.disposeLiveLocked(cur)
+					delete(a.live, sessionID)
+				}
+			}
+			a.mu.Unlock()
+			cancel()
+			if activeCommand {
+				a.emit("maiku:idle", map[string]any{"ok": true, "sessionId": sessionID})
+			}
+		}()
+
+		result, err := session.Compact(ctx)
+		if err != nil {
+			// Stop behaves like aborting a prompt: return to idle without showing
+			// a failure banner for the expected cancellation.
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			message := err.Error()
+			if errors.Is(err, compaction.ErrNothingToCompact) {
+				message = "not enough conversation history to compact"
+			}
+			a.mu.Lock()
+			cur := a.live[sessionID]
+			activeCommand := cur != nil && cur.promptGen == promptGen
+			a.mu.Unlock()
+			if activeCommand {
+				a.emit("maiku:error", map[string]any{"error": message, "sessionId": sessionID})
+			}
+			return
+		}
+
+		a.mu.Lock()
+		cur := a.live[sessionID]
+		activeCommand := cur != nil && cur.promptGen == promptGen
+		var usage UsageTotals
+		if activeCommand {
+			cur.addUsage(result.Usage)
+			usage = cur.usage
+		}
+		a.mu.Unlock()
+		if activeCommand {
+			a.emit("maiku:compacted", map[string]any{
+				"sessionId":       sessionID,
+				"messagesRemoved": result.MessagesRemoved,
+				"tokensBefore":    result.TokensBefore,
+				"tokensAfter":     result.TokensAfter,
+				"usage":           usage,
+			})
+		}
+	}()
+	return nil
+}
+
+// Abort cancels the in-flight prompt or command on the focused session only.
 func (a *App) Abort() {
 	a.mu.Lock()
 	live := a.activeLocked()

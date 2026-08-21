@@ -48,6 +48,7 @@ type Props = {
   onToggleSidebar: () => void;
   onToggleSettings: () => void;
   onSend: (text: string, images: ImageAttachment[]) => void;
+  onCommand: (command: string) => void;
   onAbort: () => void;
   onNewSession: () => void;
   onOpenFolder: () => void;
@@ -361,6 +362,7 @@ export function AppShell(props: Props) {
           <Composer
             streaming={streaming}
             onSend={props.onSend}
+            onCommand={props.onCommand}
             onAbort={props.onAbort}
             disabled={!state.cwd}
           />

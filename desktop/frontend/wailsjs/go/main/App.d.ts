@@ -9,6 +9,8 @@ export function BeginOpenAICodexLogin():Promise<main.CodexLoginInfo>;
 
 export function CancelOpenAICodexLogin():Promise<void>;
 
+export function Compact():Promise<void>;
+
 export function CompletePath(arg1:string):Promise<Array<main.PathSuggestion>>;
 
 export function FinishOpenAICodexLogin():Promise<void>;

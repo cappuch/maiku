@@ -4,6 +4,7 @@ import {
   Abort,
   BeginOpenAICodexLogin,
   CancelOpenAICodexLogin,
+  Compact,
   FinishOpenAICodexLogin,
   GetState,
   ListAPIKeys,
@@ -135,6 +136,19 @@ export default function App() {
 
   useEffect(() => {
     const offs = [
+      EventsOn("maiku:compaction_start", (data: any) => {
+        const sid = data?.sessionId as string | undefined;
+        if (sid) setStreamingSessionIds((prev) => markStreaming(prev, sid));
+        if (!isFocused(sid)) return;
+        setStreaming(true);
+        setStreamText("");
+        setStreamThinking("");
+        setThinkingStartedAt(null);
+      }),
+      EventsOn("maiku:compacted", (data: any) => {
+        if (!isFocused(data?.sessionId)) return;
+        if (data?.usage) setUsage(data.usage);
+      }),
       EventsOn("maiku:message_update", (data: any) => {
         const sid = data?.sessionId as string | undefined;
         if (sid) {
@@ -433,6 +447,24 @@ export default function App() {
     }
   };
 
+  const onCommand = async (command: string) => {
+    if (command !== "compact") return;
+    setError(null);
+    setStreaming(true);
+    if (focusedSessionRef.current) {
+      setStreamingSessionIds((prev) => markStreaming(prev, focusedSessionRef.current));
+    }
+    try {
+      await Compact();
+    } catch (e: any) {
+      setError(e?.message || String(e));
+      setStreaming(false);
+      if (focusedSessionRef.current) {
+        setStreamingSessionIds((prev) => clearStreaming(prev, focusedSessionRef.current));
+      }
+    }
+  };
+
   const switchSession = async (fn: () => Promise<unknown>) => {
     refreshGenRef.current += 1;
     // Ignore transcript events until refresh pins the new focus.
@@ -477,6 +509,7 @@ export default function App() {
       onToggleSidebar={() => setSidebarOpen((v) => !v)}
       onToggleSettings={() => setSettingsOpen((v) => !v)}
       onSend={onSend}
+      onCommand={onCommand}
       onAbort={() => Abort()}
       onNewSession={async () => {
         await switchSession(() => NewSession());
