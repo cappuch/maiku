@@ -111,8 +111,8 @@ export function Composer({
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 180) + "px";
-  }, [value]);
+    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+  });
 
   // Keep the arrow-key-highlighted suggestion visible inside the scroll list,
   // with extra bottom padding so the next file is also peekable.
@@ -222,14 +222,14 @@ export function Composer({
             name: f.name,
           });
         } else if (f.relPath) {
-          mentions.push("@" + quotePathIfNeeded(f.relPath));
+          mentions.push(`@${quotePathIfNeeded(f.relPath)}`);
         }
       }
       addImages(imgs);
       if (mentions.length > 0) {
         setValue((prev) => {
           const sep = prev && !prev.endsWith(" ") && !prev.endsWith("\n") ? " " : "";
-          return prev + sep + mentions.join(" ") + " ";
+          return `${prev}${sep}${mentions.join(" ")} `;
         });
         ref.current?.focus();
       }

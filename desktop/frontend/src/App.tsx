@@ -36,7 +36,7 @@ import { AppShell } from "./components/AppShell";
 
 const SCROLL_BOTTOM_THRESHOLD = 48;
 
-function normalizeState(raw: any): AppState {
+function normalizeState(raw: Partial<AppState> | null | undefined): AppState {
   return {
     cwd: raw?.cwd ?? "",
     folderName: raw?.folderName ?? "",
@@ -151,7 +151,7 @@ export default function App() {
 
   useEffect(() => {
     const offs = [
-      EventsOn("maiku:compaction_start", (data: any) => {
+      EventsOn("maiku:compaction_start", (data) => {
         const sid = data?.sessionId as string | undefined;
         if (sid) setStreamingSessionIds((prev) => markStreaming(prev, sid));
         if (!isFocused(sid)) return;
@@ -160,11 +160,11 @@ export default function App() {
         setStreamThinking("");
         setThinkingStartedAt(null);
       }),
-      EventsOn("maiku:compacted", (data: any) => {
+      EventsOn("maiku:compacted", (data) => {
         if (!isFocused(data?.sessionId)) return;
         if (data?.usage) setUsage(data.usage);
       }),
-      EventsOn("maiku:message_update", (data: any) => {
+      EventsOn("maiku:message_update", (data) => {
         const sid = data?.sessionId as string | undefined;
         if (sid) {
           setStreamingSessionIds((prev) => markStreaming(prev, sid));
@@ -256,7 +256,7 @@ export default function App() {
           });
         }
       }),
-      EventsOn("maiku:message_end", (data: any) => {
+      EventsOn("maiku:message_end", (data) => {
         const sid = data?.sessionId as string | undefined;
         if (!isFocused(sid)) return;
 
@@ -335,7 +335,7 @@ export default function App() {
         rateSamplesRef.current = [];
         setTokensPerSec(0);
       }),
-      EventsOn("maiku:tool_start", (data: any) => {
+      EventsOn("maiku:tool_start", (data) => {
         const sid = data?.sessionId as string | undefined;
         if (sid) setStreamingSessionIds((prev) => markStreaming(prev, sid));
         if (!isFocused(sid)) return;
@@ -382,7 +382,7 @@ export default function App() {
           return [...prev, patch];
         });
       }),
-      EventsOn("maiku:subagent_event", (data: any) => {
+      EventsOn("maiku:subagent_event", (data) => {
         if (!isFocused(data?.sessionId)) return;
         const subagentId = typeof data?.subagentId === "string" ? data.subagentId : "";
         if (!subagentId) return;
@@ -401,7 +401,7 @@ export default function App() {
             activities: persistedSubagentActivities(current.details),
           };
           let status = view.status;
-          let activities = [...view.activities];
+          const activities = [...view.activities];
           let text = view.text;
           let thinking = view.thinking;
           let childError = view.error;
@@ -456,7 +456,7 @@ export default function App() {
           return next;
         });
       }),
-      EventsOn("maiku:tool_end", (data: any) => {
+      EventsOn("maiku:tool_end", (data) => {
         if (!isFocused(data?.sessionId)) return;
         setMessages((prev) => {
           const next = [...prev];
@@ -481,7 +481,7 @@ export default function App() {
           return next;
         });
       }),
-      EventsOn("maiku:idle", (data: any) => {
+      EventsOn("maiku:idle", (data) => {
         const sid = (data?.sessionId as string) || "";
         if (sid) {
           setStreamingSessionIds((prev) => clearStreaming(prev, sid));
@@ -502,7 +502,7 @@ export default function App() {
         setTokensPerSec(0);
         refresh().catch(() => {});
       }),
-      EventsOn("maiku:error", (data: any) => {
+      EventsOn("maiku:error", (data) => {
         const sid = data?.sessionId as string | undefined;
         if (sid) setStreamingSessionIds((prev) => clearStreaming(prev, sid));
         if (!isFocused(sid)) return;
@@ -510,7 +510,9 @@ export default function App() {
         setStreaming(false);
       }),
     ];
-    return () => offs.forEach((off) => off && off());
+    return () => {
+      for (const off of offs) off?.();
+    };
   }, [refresh, isFocused]);
 
   const onTranscriptScroll = useCallback(() => {
@@ -525,7 +527,7 @@ export default function App() {
     if (el && followTranscriptRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, streamText, streamThinking]);
+  });
 
   const onSend = async (text: string, images: ImageAttachment[] = []) => {
     setError(null);
@@ -539,8 +541,8 @@ export default function App() {
     }
     try {
       await Prompt(text, images);
-    } catch (e: any) {
-      setError(e?.message || String(e));
+    } catch (error: unknown) {
+      setError(errorMessage(error));
       setStreaming(false);
       if (focusedSessionRef.current) {
         setStreamingSessionIds((prev) => clearStreaming(prev, focusedSessionRef.current));
@@ -558,8 +560,8 @@ export default function App() {
       setError(null);
       try {
         await SetSubagentEnabled(match[1] === "true");
-      } catch (e: any) {
-        setError(e?.message || String(e));
+      } catch (error: unknown) {
+        setError(errorMessage(error));
       }
       return;
     }
@@ -572,8 +574,8 @@ export default function App() {
     }
     try {
       await Compact();
-    } catch (e: any) {
-      setError(e?.message || String(e));
+    } catch (error: unknown) {
+      setError(errorMessage(error));
       setStreaming(false);
       if (focusedSessionRef.current) {
         setStreamingSessionIds((prev) => clearStreaming(prev, focusedSessionRef.current));
@@ -638,8 +640,8 @@ export default function App() {
       onOpenRecentFolder={async (path) => {
         try {
           await switchSession(() => OpenRecentFolder(path));
-        } catch (e: any) {
-          setError(e?.message || String(e));
+        } catch (error: unknown) {
+          setError(errorMessage(error));
         }
       }}
       onOpenSession={async (path) => {
@@ -649,8 +651,8 @@ export default function App() {
         try {
           await RenameSession(path, name);
           await refresh();
-        } catch (e: any) {
-          setError(e?.message || String(e));
+        } catch (error: unknown) {
+          setError(errorMessage(error));
         }
       }}
       onSetModel={async (provider, id) => {
@@ -720,9 +722,14 @@ function subagentActionInput(toolName: unknown, rawArgs: unknown): string {
   }
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
 function truncate(s: string, n: number) {
   if (s.length <= n) return s;
-  return s.slice(0, n) + "…";
+  return `${s.slice(0, n)}…`;
 }
 
 function parseMaybeJSON(value: unknown): unknown {

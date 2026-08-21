@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import type { ModelInfo } from "../types";
 import { cn } from "../lib/utils";
@@ -27,11 +27,11 @@ export function ModelSelector({
   const thinkRootRef = useRef<HTMLDivElement>(null);
   const modelRootRef = useRef<HTMLDivElement>(null);
 
-  const closeAll = () => {
+  const closeAll = useCallback(() => {
     setModelOpen(false);
     setThinkOpen(false);
     setQ("");
-  };
+  }, []);
 
   // Clicking anywhere outside a dropdown closes it.
   useClickAway(thinkOpen, thinkRootRef, () => setThinkOpen(false));
@@ -46,7 +46,7 @@ export function ModelSelector({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [modelOpen, thinkOpen]);
+  }, [modelOpen, thinkOpen, closeAll]);
 
   const filtered = useMemo(() => {
     const lower = q.toLowerCase();
@@ -154,7 +154,7 @@ export function ModelSelector({
             className="absolute right-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] shadow-xl"
           >
             <input
-              autoFocus
+              ref={(input) => input?.focus()}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search models…"

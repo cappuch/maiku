@@ -32,8 +32,16 @@ export function ThinkingLive({
   const expanded = manualExpanded ?? live;
 
   useLayoutEffect(() => {
-    setTraceHeight(traceRef.current?.offsetHeight ?? 0);
-  }, [thinking, expanded]);
+    const trace = traceRef.current;
+    if (!trace) return;
+
+    const updateHeight = () => setTraceHeight(trace.offsetHeight);
+    updateHeight();
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(trace);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <section className="thinking-trace-card">
