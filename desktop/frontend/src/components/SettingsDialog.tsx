@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Code2, KeyRound, Search, X } from "lucide-react";
+import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import type { APIKeyStatus } from "../types";
 
 export type CodexLoginHandlers = {
@@ -26,6 +27,51 @@ export function SettingsDialog({
   const [codexBusy, setCodexBusy] = useState(false);
   const [codexInfo, setCodexInfo] = useState<{ userCode: string; verificationUri: string } | null>(null);
   const [codexError, setCodexError] = useState<string | null>(null);
+  const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<() => void>(() => {});
+
+  closeRef.current = () => {
+    void codexLogin?.cancel();
+    onClose();
+  };
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const focusable = dialog?.querySelector<HTMLElement>(
+      "button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
+    );
+    focusable?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const items = Array.from(dialog.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
+      )).filter((item) => item.offsetParent !== null);
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      previousFocus?.focus();
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -45,11 +91,11 @@ export function SettingsDialog({
     try {
       const info = await codexLogin.begin();
       setCodexInfo(info);
-      // Open verification page when possible.
+      // Open verification page in the system browser.
       try {
-        window.open(info.verificationUri, "_blank", "noopener,noreferrer");
+        BrowserOpenURL(info.verificationUri);
       } catch {
-        /* ignore */
+        window.open(info.verificationUri, "_blank", "noopener,noreferrer");
       }
       await codexLogin.finish();
       setCodexInfo(null);
@@ -63,20 +109,23 @@ export function SettingsDialog({
   const miruKey = keys.find((k) => k.provider === "miru");
 
   return (
-    <div className="fixed inset-0 z-50 bg-[var(--color-panel)]">
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-title"
+      className="fixed inset-0 z-50 bg-[var(--color-panel)]"
+    >
       <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
         <header
           data-wails-drag
           className="titlebar-drag relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] pr-3 pl-[96px]"
         >
-          <h2 className="text-sm font-semibold leading-none tracking-tight">Settings</h2>
+          <h2 id="settings-title" className="text-sm font-semibold leading-none tracking-tight">Settings</h2>
           <button
             type="button"
             data-wails-no-drag
-            onClick={() => {
-              void codexLogin?.cancel();
-              onClose();
-            }}
+            onClick={() => closeRef.current()}
             className="titlebar-no-drag flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-muted)] outline-none transition hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)] focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)]"
             title="Close settings"
             aria-label="Close settings"
@@ -86,11 +135,11 @@ export function SettingsDialog({
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <nav className="w-56 shrink-0 border-r border-[var(--color-line)] px-3 py-4">
-            <button type="button" onClick={() => setTab("providers")} className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "providers" ? "bg-[var(--color-panel-2)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-fg)]"}`}>
+          <nav aria-label="Settings sections" className="w-56 shrink-0 border-r border-[var(--color-line)] px-3 py-4">
+            <button type="button" onClick={() => setTab("providers")} className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "providers" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
               <KeyRound size={14} /> Providers
             </button>
-            <button type="button" onClick={() => setTab("miru")} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "miru" ? "bg-[var(--color-panel-2)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-fg)]"}`}>
+            <button type="button" onClick={() => setTab("miru")} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "miru" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
               <Code2 size={14} /> Miru Code
             </button>
           </nav>
@@ -108,6 +157,7 @@ export function SettingsDialog({
               <input
                 type="search"
                 value={query}
+                aria-label="Search providers"
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search providers…"
                 className="min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 text-xs outline-none ring-0 shadow-none placeholder:text-[var(--color-muted)] focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none"
@@ -117,7 +167,7 @@ export function SettingsDialog({
                 <button
                   type="button"
                   onClick={() => setQuery("")}
-                  className="rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+                  className="rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-text)]"
                   aria-label="Clear search"
                 >
                   <X size={12} />
@@ -184,7 +234,7 @@ export function SettingsDialog({
                       {codexInfo && (
                         <p className="text-[11px] text-[var(--color-muted)]">
                           Enter code{" "}
-                          <span className="font-mono text-[var(--color-fg)]">{codexInfo.userCode}</span> at{" "}
+                          <span className="font-mono text-[var(--color-text)]">{codexInfo.userCode}</span> at{" "}
                           <a
                             href={codexInfo.verificationUri}
                             target="_blank"
@@ -204,6 +254,7 @@ export function SettingsDialog({
                   <div className="flex gap-2">
                     <input
                       type="password"
+                      aria-label={`${k.name || k.provider} API key`}
                       placeholder={placeholder}
                       value={drafts[k.provider] ?? ""}
                       onChange={(e) =>
@@ -218,9 +269,15 @@ export function SettingsDialog({
                         const value = (drafts[k.provider] ?? "").trim();
                         if (!value) return;
                         setSaving(k.provider);
+                        setSaveErrors((errors) => ({ ...errors, [k.provider]: "" }));
                         try {
                           await onSave(k.provider, value);
                           setDrafts((d) => ({ ...d, [k.provider]: "" }));
+                        } catch (error) {
+                          setSaveErrors((errors) => ({
+                            ...errors,
+                            [k.provider]: error instanceof Error ? error.message : String(error),
+                          }));
                         } finally {
                           setSaving(null);
                         }
@@ -230,6 +287,11 @@ export function SettingsDialog({
                       Save
                     </button>
                   </div>
+                  {saveErrors[k.provider] ? (
+                    <p role="alert" className="mt-2 text-[11px] text-[var(--color-danger)]">
+                      {saveErrors[k.provider]}
+                    </p>
+                  ) : null}
                 </div>
                 </div>
               );
@@ -243,10 +305,55 @@ export function SettingsDialog({
                 <div className="rounded-lg bg-[var(--color-panel-2)] p-2 text-[var(--color-accent)]"><Code2 size={18} /></div>
                 <div><h3 className="text-sm font-semibold">Miru Code Search</h3><p className="mt-1 text-xs leading-5 text-[var(--color-muted)]">Semantic code search for your workspace. Miru uses your Takara API key to index and understand code.</p></div>
               </div>
-              {miruKey ? <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
-                <div className="mb-3"><div className="text-xs font-medium">Takara API key</div><div className="mt-1 text-[10px] text-[var(--color-muted)]">{miruKey.hasKey ? `set via ${miruKey.source || "file"}` : "not set"}</div></div>
-                <div className="flex gap-2"><input type="password" placeholder={miruKey.hasKey ? "•••••••• (leave blank to keep)" : "Enter Takara API key"} value={drafts.miru ?? ""} onChange={(e) => setDrafts((d) => ({ ...d, miru: e.target.value }))} className="flex-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs outline-none transition focus:border-[var(--color-accent-dim)] focus:ring-2 focus:ring-[var(--color-accent-dim)]" /><button type="button" disabled={saving === "miru" || !(drafts.miru ?? "").trim()} onClick={async () => { const value = (drafts.miru ?? "").trim(); if (!value) return; setSaving("miru"); try { await onSave("miru", value); setDrafts((d) => ({ ...d, miru: "" })); } finally { setSaving(null); } }} className="rounded-lg bg-[var(--color-accent)] px-4 py-2 text-xs font-medium text-[var(--color-ink)] disabled:opacity-40">Save key</button></div>
-              </div> : <p className="text-xs text-[var(--color-muted)]">Miru is not available in this build.</p>}
+              {miruKey ? (
+                <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
+                  <div className="mb-3">
+                    <div className="text-xs font-medium">Takara API key</div>
+                    <div className="mt-1 text-[10px] text-[var(--color-muted)]">
+                      {miruKey.hasKey ? `set via ${miruKey.source || "file"}` : "not set"}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      aria-label="Takara API key"
+                      placeholder={miruKey.hasKey ? "•••••••• (leave blank to keep)" : "Enter Takara API key"}
+                      value={drafts.miru ?? ""}
+                      onChange={(e) => setDrafts((draft) => ({ ...draft, miru: e.target.value }))}
+                      className="flex-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs outline-none transition focus:border-[var(--color-accent-dim)] focus:ring-2 focus:ring-[var(--color-accent-dim)]"
+                    />
+                    <button
+                      type="button"
+                      disabled={saving === "miru" || !(drafts.miru ?? "").trim()}
+                      onClick={async () => {
+                        const value = (drafts.miru ?? "").trim();
+                        if (!value) return;
+                        setSaving("miru");
+                        setSaveErrors((errors) => ({ ...errors, miru: "" }));
+                        try {
+                          await onSave("miru", value);
+                          setDrafts((draft) => ({ ...draft, miru: "" }));
+                        } catch (error) {
+                          setSaveErrors((errors) => ({
+                            ...errors,
+                            miru: error instanceof Error ? error.message : String(error),
+                          }));
+                        } finally {
+                          setSaving(null);
+                        }
+                      }}
+                      className="rounded-lg bg-[var(--color-accent)] px-4 py-2 text-xs font-medium text-[var(--color-ink)] disabled:opacity-40"
+                    >
+                      Save key
+                    </button>
+                  </div>
+                  {saveErrors.miru ? (
+                    <p role="alert" className="mt-2 text-[11px] text-[var(--color-danger)]">{saveErrors.miru}</p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-xs text-[var(--color-muted)]">Miru is not available in this build.</p>
+              )}
             </div>
           </div>
         )}

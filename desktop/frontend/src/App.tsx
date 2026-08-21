@@ -89,6 +89,7 @@ export default function App() {
   const rateSamplesRef = useRef<number[]>([]);
   const RATE_BUFFER = 16;
   const [error, setError] = useState<string | null>(null);
+  const [retryingStartup, setRetryingStartup] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -382,6 +383,29 @@ export default function App() {
           return [...prev, patch];
         });
       }),
+      EventsOn("maiku:tool_update", (data) => {
+        if (!isFocused(data?.sessionId)) return;
+        const id = typeof data?.toolCallId === "string" ? data.toolCallId : "";
+        if (!id) return;
+        const partial = parsePartialResult(data?.partialResult);
+        if (!partial.text && partial.details === undefined) return;
+        setMessages((prev) => {
+          const index = prev.findIndex(
+            (message) =>
+              message.toolCallId === id &&
+              (message.role === "tool" || message.role === "toolResult"),
+          );
+          if (index < 0) return prev;
+          const current = prev[index];
+          const next = [...prev];
+          next[index] = {
+            ...current,
+            text: partial.text ? truncate(partial.text, 4000) : current.text,
+            details: partial.details ?? current.details,
+          };
+          return next;
+        });
+      }),
       EventsOn("maiku:subagent_event", (data) => {
         if (!isFocused(data?.sessionId)) return;
         const subagentId = typeof data?.subagentId === "string" ? data.subagentId : "";
@@ -529,24 +553,43 @@ export default function App() {
     }
   });
 
-  const onSend = async (text: string, images: ImageAttachment[] = []) => {
+  // Live Markdown is throttled inside the transcript, so some height changes
+  // happen without a parent render. Follow those DOM updates as well.
+  useEffect(() => {
+    if (!state) return;
+    const element = scrollRef.current;
+    if (!element) return;
+    const observer = new MutationObserver(() => {
+      if (followTranscriptRef.current) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(element, { childList: true, characterData: true, subtree: true });
+    return () => observer.disconnect();
+  }, [state]);
+
+  const onSend = async (text: string, images: ImageAttachment[] = []): Promise<boolean> => {
     setError(null);
     // Sending is an explicit request to start a new turn, so reveal it and
     // resume following even if the user had been reading farther up.
     followTranscriptRef.current = true;
-    setMessages((prev) => [...prev, { role: "user", text, images }]);
+    const optimisticId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setMessages((prev) => [...prev, { id: optimisticId, role: "user", text, images }]);
     setStreaming(true);
     if (focusedSessionRef.current) {
       setStreamingSessionIds((prev) => markStreaming(prev, focusedSessionRef.current));
     }
     try {
       await Prompt(text, images);
+      return true;
     } catch (error: unknown) {
+      // Keep the draft in the composer and remove the optimistic bubble so a
+      // rejected prompt never looks as if it was accepted.
+      setMessages((prev) => prev.filter((message) => message.id !== optimisticId));
       setError(errorMessage(error));
       setStreaming(false);
       if (focusedSessionRef.current) {
         setStreamingSessionIds((prev) => clearStreaming(prev, focusedSessionRef.current));
       }
+      return false;
     }
   };
 
@@ -594,14 +637,46 @@ export default function App() {
     streamRef.current = null;
     rateSamplesRef.current = [];
     setTokensPerSec(0);
-    await fn();
-    await refresh();
+    try {
+      await fn();
+      await refresh();
+    } catch (switchError) {
+      // Restore the previous focus if a picker was cancelled or an open failed.
+      await refresh().catch(() => {});
+      throw switchError;
+    }
   };
 
   if (!state) {
+    const retry = async () => {
+      setRetryingStartup(true);
+      setError(null);
+      try {
+        await refresh();
+      } catch (startupError: unknown) {
+        setError(errorMessage(startupError));
+      } finally {
+        setRetryingStartup(false);
+      }
+    };
+
     return (
-      <div className="flex h-full items-center justify-center text-[var(--color-muted)]">
-        Loading maiku…
+      <div className="startup-screen">
+        <div className="startup-mark" aria-hidden>m</div>
+        {error ? (
+          <div className="startup-card" role="alert">
+            <h1>Couldn’t start maiku</h1>
+            <p>{error}</p>
+            <button type="button" onClick={() => void retry()} disabled={retryingStartup}>
+              {retryingStartup ? "Retrying…" : "Try again"}
+            </button>
+          </div>
+        ) : (
+          <div className="startup-loading" role="status">
+            <span className="startup-dot" />
+            Loading your workspace…
+          </div>
+        )}
       </div>
     );
   }
@@ -630,12 +705,28 @@ export default function App() {
       onToggleSettings={() => setSettingsOpen((v) => !v)}
       onSend={onSend}
       onCommand={onCommand}
-      onAbort={() => Abort()}
+      onAbort={async () => {
+        try {
+          await Abort();
+          return true;
+        } catch (abortError: unknown) {
+          setError(errorMessage(abortError));
+          return false;
+        }
+      }}
       onNewSession={async () => {
-        await switchSession(() => NewSession());
+        try {
+          await switchSession(() => NewSession());
+        } catch (sessionError: unknown) {
+          setError(errorMessage(sessionError));
+        }
       }}
       onOpenFolder={async () => {
-        await switchSession(() => OpenFolder());
+        try {
+          await switchSession(() => OpenFolder());
+        } catch (folderError: unknown) {
+          setError(errorMessage(folderError));
+        }
       }}
       onOpenRecentFolder={async (path) => {
         try {
@@ -645,7 +736,11 @@ export default function App() {
         }
       }}
       onOpenSession={async (path) => {
-        await switchSession(() => OpenSession(path));
+        try {
+          await switchSession(() => OpenSession(path));
+        } catch (sessionError: unknown) {
+          setError(errorMessage(sessionError));
+        }
       }}
       onRenameSession={async (path, name) => {
         try {
@@ -656,12 +751,20 @@ export default function App() {
         }
       }}
       onSetModel={async (provider, id) => {
-        await SetModel(provider, id);
-        await refresh();
+        try {
+          await SetModel(provider, id);
+          await refresh();
+        } catch (modelError: unknown) {
+          setError(errorMessage(modelError));
+        }
       }}
       onSetThinking={async (level) => {
-        await SetThinking(level);
-        await refresh();
+        try {
+          await SetThinking(level);
+          await refresh();
+        } catch (thinkingError: unknown) {
+          setError(errorMessage(thinkingError));
+        }
       }}
       onSaveKey={async (provider, key) => {
         await SetAPIKey(provider, key);
@@ -730,6 +833,22 @@ function errorMessage(error: unknown): string {
 function truncate(s: string, n: number) {
   if (s.length <= n) return s;
   return `${s.slice(0, n)}…`;
+}
+
+function parsePartialResult(value: unknown): { text: string; details?: unknown } {
+  if (typeof value === "string") return { text: value };
+  if (!value || typeof value !== "object") return { text: "" };
+  const result = value as Record<string, unknown>;
+  const content = result.content ?? result.Content;
+  const text = Array.isArray(content)
+    ? content.flatMap((item): string[] => {
+        if (!item || typeof item !== "object") return [];
+        const block = item as Record<string, unknown>;
+        const blockText = block.text ?? block.Text;
+        return typeof blockText === "string" && blockText ? [blockText] : [];
+      }).join("\n")
+    : "";
+  return { text, details: result.details ?? result.Details };
 }
 
 function parseMaybeJSON(value: unknown): unknown {

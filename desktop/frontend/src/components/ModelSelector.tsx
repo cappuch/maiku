@@ -77,6 +77,7 @@ export function ModelSelector({
             thinkOpen && "border-[var(--color-accent-dim)]",
           )}
           title="Thinking level"
+          aria-expanded={thinkOpen}
         >
           <span className="font-mono">think:{thinking}</span>
           <ChevronDown
@@ -99,6 +100,7 @@ export function ModelSelector({
                 <button
                   key={t}
                   type="button"
+                  aria-pressed={active}
                   onClick={() => {
                     onSetThinking(t);
                     setThinkOpen(false);
@@ -137,6 +139,8 @@ export function ModelSelector({
             "flex max-w-[280px] items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-panel-2)] px-2.5 py-1.5 text-xs hover:border-[var(--color-accent-dim)]",
             modelOpen && "border-[var(--color-accent-dim)]",
           )}
+          aria-haspopup="dialog"
+          aria-expanded={modelOpen}
         >
           <span className="truncate font-mono">{label}</span>
           <ChevronDown
@@ -151,12 +155,15 @@ export function ModelSelector({
         {modelOpen && (
           <div
             data-wails-no-drag
+            role="dialog"
+            aria-label="Choose a model"
             className="absolute right-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] shadow-xl"
           >
             <input
               ref={(input) => input?.focus()}
               value={q}
               onChange={(e) => setQ(e.target.value)}
+              aria-label="Search models"
               placeholder="Search models…"
               className="w-full border-b border-[var(--color-line)] bg-transparent px-3 py-2 text-xs outline-none"
             />
@@ -167,6 +174,7 @@ export function ModelSelector({
                   <button
                     key={`${m.provider}/${m.id}`}
                     type="button"
+                    aria-pressed={active}
                     onClick={() => {
                       onSetModel(m.provider, m.id);
                       closeAll();

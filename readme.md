@@ -41,6 +41,15 @@ open desktop/build/bin/maiku.app
 
 Env: `MAIKU_AGENT_DIR`, `MAIKU_SESSION_DIR`
 
+## Web tools
+
+The default agent toolset includes:
+
+- `web_search` — searches DuckDuckGo's HTML endpoint and returns structured titles, URLs, and snippets. Supports `max_results`, `region`, and day/week/month/year filters; no API key is required.
+- `curl` — fetches HTTP(S) page content with a Chrome desktop user agent. It follows redirects and supports custom methods, headers, request bodies, and timeouts.
+
+Both tools cap response output before returning it to the model.
+
 ## Subagents
 
 Root Maiku sessions expose a `subagent` tool for delegating self-contained work. Each call runs an independent, ephemeral child with `read`, `bash`, `edit`, and `write`; children cannot delegate again. Independent calls emitted in the same turn run concurrently and return concise Markdown reports to the root orchestrator.

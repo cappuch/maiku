@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
-import { AtSign, Command, Paperclip, Send, Square, X } from "lucide-react";
+import { AtSign, Command, Loader2, Paperclip, Send, Square, X } from "lucide-react";
 import { CompletePath, PickFiles } from "../../wailsjs/go/main/App";
 import type { ImageAttachment, PathSuggestion } from "../types";
 
@@ -46,6 +46,8 @@ function knownCommand(text: string): string | null {
   return match ? match.value.slice(1) : null;
 }
 
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
 let attachmentSeq = 0;
 function nextAttachmentId() {
   attachmentSeq += 1;
@@ -54,6 +56,28 @@ function nextAttachmentId() {
 
 function quotePathIfNeeded(path: string) {
   return /\s/.test(path) ? `"${path}"` : path;
+}
+
+const DRAFT_PREFIX = "maiku:draft:";
+
+function readDraft(key: string): string {
+  if (!key) return "";
+  try {
+    return localStorage.getItem(`${DRAFT_PREFIX}${key}`) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeDraft(key: string, value: string) {
+  if (!key) return;
+  try {
+    const storageKey = `${DRAFT_PREFIX}${key}`;
+    if (value) localStorage.setItem(storageKey, value);
+    else localStorage.removeItem(storageKey);
+  } catch {
+    // Storage can be unavailable in hardened WebViews; the in-memory draft remains.
+  }
 }
 
 /** Find the active @mention prefix ending at cursor. */
@@ -74,10 +98,16 @@ function commandPrefixAt(text: string, cursor: number): { start: number; query: 
 
 async function fileToAttachment(file: File): Promise<ComposerAttachment | null> {
   if (!file.type.startsWith("image/")) return null;
+  if (file.size > MAX_IMAGE_BYTES) {
+    throw new Error(`${file.name || "Image"} is larger than 10 MB`);
+  }
   const buf = await file.arrayBuffer();
   const bytes = new Uint8Array(buf);
   let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  const chunkSize = 32_768;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
   return {
     id: nextAttachmentId(),
     mimeType: file.type || "image/png",
@@ -87,26 +117,50 @@ async function fileToAttachment(file: File): Promise<ComposerAttachment | null> 
 }
 
 export function Composer({
+  draftKey,
   streaming,
   disabled,
   onSend,
   onCommand,
   onAbort,
 }: {
+  draftKey: string;
   streaming: boolean;
   disabled?: boolean;
-  onSend: (text: string, images: ImageAttachment[]) => void;
+  onSend: (text: string, images: ImageAttachment[]) => Promise<boolean>;
   onCommand: (command: string) => void;
-  onAbort: () => void;
+  onAbort: () => Promise<boolean>;
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(() => readDraft(draftKey));
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<ComposerSuggestion[]>([]);
   const [suggestIndex, setSuggestIndex] = useState(0);
   const [suggestRange, setSuggestRange] = useState<{ start: number; end: number } | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const suggestReq = useRef(0);
   const suggestListRef = useRef<HTMLDivElement>(null);
+  const activeDraftKey = useRef(draftKey);
+
+  useEffect(() => {
+    if (activeDraftKey.current === draftKey) return;
+    activeDraftKey.current = draftKey;
+    ++suggestReq.current;
+    setValue(readDraft(draftKey));
+    setAttachments([]);
+    setAttachmentError(null);
+    setSuggestions([]);
+    setSuggestRange(null);
+    requestAnimationFrame(() => {
+      if (!disabled) ref.current?.focus();
+    });
+  }, [draftKey, disabled]);
+
+  useEffect(() => {
+    if (!streaming) setStopping(false);
+  }, [streaming]);
 
   useEffect(() => {
     const el = ref.current;
@@ -154,14 +208,15 @@ export function Composer({
       return;
     }
     const req = ++suggestReq.current;
+    const requestDraftKey = activeDraftKey.current;
     try {
       const items = (await CompletePath(prefix.query)) || [];
-      if (req !== suggestReq.current) return;
+      if (req !== suggestReq.current || requestDraftKey !== activeDraftKey.current) return;
       setSuggestions(items.map((item) => ({ ...item, kind: "file" as const })));
       setSuggestIndex(0);
       setSuggestRange({ start: prefix.start, end: cursor });
     } catch {
-      if (req !== suggestReq.current) return;
+      if (req !== suggestReq.current || requestDraftKey !== activeDraftKey.current) return;
       setSuggestions([]);
       setSuggestRange(null);
     }
@@ -181,6 +236,7 @@ export function Composer({
     const next = before + insert + after;
     const cursor = before.length + insert.length;
     setValue(next);
+    writeDraft(draftKey, next);
     setSuggestions([]);
     setSuggestRange(null);
     requestAnimationFrame(() => {
@@ -202,20 +258,30 @@ export function Composer({
     const files = imageItems
       .map((it) => it.getAsFile())
       .filter((f): f is File => !!f);
-    const attached = (await Promise.all(files.map(fileToAttachment))).filter(
-      (a): a is ComposerAttachment => !!a,
-    );
-    addImages(attached);
+    try {
+      const attached = (await Promise.all(files.map(fileToAttachment))).filter(
+        (attachment): attachment is ComposerAttachment => !!attachment,
+      );
+      setAttachmentError(null);
+      addImages(attached);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const onPickFiles = async () => {
     if (disabled || streaming) return;
     try {
       const picked = (await PickFiles()) || [];
+      setAttachmentError(null);
       const imgs: ComposerAttachment[] = [];
       const mentions: string[] = [];
       for (const f of picked) {
         if (f.isImage && f.data && f.mimeType) {
+          if (f.data.length > Math.ceil(MAX_IMAGE_BYTES * 4 / 3)) {
+            setAttachmentError(`${f.name || "Image"} is larger than 10 MB`);
+            continue;
+          }
           imgs.push({
             id: nextAttachmentId(),
             mimeType: f.mimeType,
@@ -230,7 +296,9 @@ export function Composer({
       if (mentions.length > 0) {
         setValue((prev) => {
           const sep = prev && !prev.endsWith(" ") && !prev.endsWith("\n") ? " " : "";
-          return `${prev}${sep}${mentions.join(" ")} `;
+          const next = `${prev}${sep}${mentions.join(" ")} `;
+          writeDraft(draftKey, next);
+          return next;
         });
         ref.current?.focus();
       }
@@ -239,29 +307,53 @@ export function Composer({
     }
   };
 
-  const submit = () => {
-    const text = value.trim();
-    if ((!text && attachments.length === 0) || streaming || disabled) return;
+  const submit = async () => {
+    const draftValue = value;
+    const text = draftValue.trim();
+    if ((!text && attachments.length === 0) || streaming || submitting || disabled) return;
     const command = knownCommand(text);
     const normalized = normalizeCommand(text);
     const isSettingsCommand = normalized === "/settings" || normalized.startsWith("/settings ");
     if (command || isSettingsCommand) {
       setValue("");
+      writeDraft(draftKey, "");
       setAttachments([]);
       setSuggestions([]);
       setSuggestRange(null);
       onCommand(command || normalized.slice(1));
       return;
     }
+
+    const sourceDraftKey = draftKey;
+    const sentAttachmentIds = new Set(attachments.map((attachment) => attachment.id));
     const images = attachments.map(({ mimeType, data, name }) => ({ mimeType, data, name }));
-    setValue("");
-    setAttachments([]);
-    setSuggestions([]);
-    setSuggestRange(null);
-    onSend(text, images);
+    setSubmitting(true);
+    try {
+      const accepted = await onSend(text, images);
+      if (!accepted) return;
+      if (readDraft(sourceDraftKey) === draftValue) writeDraft(sourceDraftKey, "");
+      if (activeDraftKey.current !== sourceDraftKey) return;
+      setValue((current) => current === draftValue ? "" : current);
+      setAttachments((current) => current.filter((attachment) => !sentAttachmentIds.has(attachment.id)));
+      setSuggestions([]);
+      setSuggestRange(null);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const canSend = (!!value.trim() || attachments.length > 0) && !disabled;
+  const stop = async () => {
+    if (stopping) return;
+    setStopping(true);
+    try {
+      const accepted = await onAbort();
+      if (!accepted) setStopping(false);
+    } catch {
+      setStopping(false);
+    }
+  };
+
+  const canSend = (!!value.trim() || attachments.length > 0) && !disabled && !submitting;
 
   return (
     <div className="composer-dock relative z-30 px-5 pt-3 pb-4">
@@ -269,12 +361,18 @@ export function Composer({
         {suggestions.length > 0 && (
           <div
             ref={suggestListRef}
+            id="composer-suggestions"
+            role="listbox"
             className="composer-suggestions absolute bottom-full left-0 right-0 z-20 mb-2 max-h-52 overflow-y-auto py-1"
           >
             {suggestions.map((s, i) => (
               <button
                 key={s.kind + s.value + s.label}
+                id={`composer-suggestion-${i}`}
                 type="button"
+                role="option"
+                tabIndex={-1}
+                aria-selected={i === suggestIndex}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   applySuggestion(s);
@@ -304,6 +402,14 @@ export function Composer({
         )}
 
         <div className="composer-shell">
+          {attachmentError ? (
+            <div role="alert" className="flex items-center justify-between border-b border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-danger)_9%,transparent)] px-3 py-2 text-xs text-[var(--color-danger)]">
+              <span>{attachmentError}</span>
+              <button type="button" onClick={() => setAttachmentError(null)} className="rounded p-0.5 hover:bg-white/5" aria-label="Dismiss attachment error">
+                <X size={12} />
+              </button>
+            </div>
+          ) : null}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 border-b border-[var(--color-line)] px-3 pt-3 pb-2">
               {attachments.map((att) => (
@@ -320,7 +426,8 @@ export function Composer({
                     type="button"
                     title="Remove"
                     onClick={() => setAttachments((prev) => prev.filter((a) => a.id !== att.id))}
-                    className="absolute top-0.5 right-0.5 rounded bg-black/70 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    className="absolute top-0.5 right-0.5 rounded bg-black/75 p-0.5 text-white opacity-70 transition-opacity hover:opacity-100 focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                    aria-label={`Remove ${att.name || "attachment"}`}
                   >
                     <X size={10} />
                   </button>
@@ -336,6 +443,7 @@ export function Composer({
               disabled={disabled || streaming}
               className="composer-icon-button mb-0.5"
               title="Attach files"
+              aria-label="Attach files"
             >
               <Paperclip size={16} />
             </button>
@@ -344,6 +452,13 @@ export function Composer({
               rows={1}
               value={value}
               disabled={disabled}
+              aria-label="Message maiku"
+              role="combobox"
+              aria-haspopup="listbox"
+              aria-autocomplete="list"
+              aria-expanded={suggestions.length > 0}
+              aria-controls={suggestions.length > 0 ? "composer-suggestions" : undefined}
+              aria-activedescendant={suggestions.length > 0 ? `composer-suggestion-${suggestIndex}` : undefined}
               placeholder={
                 disabled
                   ? "Open a folder to start…"
@@ -352,6 +467,7 @@ export function Composer({
               onChange={(e) => {
                 const next = e.target.value;
                 setValue(next);
+                writeDraft(draftKey, next);
                 void refreshSuggestions(next, e.target.selectionStart ?? next.length);
               }}
               onClick={(e) => {
@@ -369,7 +485,7 @@ export function Composer({
                 // re-selecting the still-visible autocomplete row.
                 if (e.key === "Enter" && !e.shiftKey && knownCommand(value)) {
                   e.preventDefault();
-                  submit();
+                  void submit();
                   return;
                 }
                 if (suggestions.length > 0 && suggestRange) {
@@ -383,7 +499,7 @@ export function Composer({
                     setSuggestIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
                     return;
                   }
-                  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                  if ((e.key === "Tab" && !e.shiftKey) || (e.key === "Enter" && !e.shiftKey)) {
                     e.preventDefault();
                     applySuggestion(suggestions[suggestIndex] || suggestions[0]);
                     return;
@@ -397,7 +513,7 @@ export function Composer({
                 }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  submit();
+                  void submit();
                 }
               }}
               className="max-h-[180px] min-h-[28px] flex-1 resize-none bg-transparent py-1.5 text-[14px] leading-6 outline-none placeholder:text-[var(--color-muted)] disabled:opacity-50"
@@ -405,21 +521,24 @@ export function Composer({
             {streaming ? (
               <button
                 type="button"
-                onClick={onAbort}
-                className="mb-0.5 rounded-xl bg-[var(--color-danger)]/15 p-2.5 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/25"
-                title="Stop"
+                onClick={() => void stop()}
+                disabled={stopping}
+                className="mb-0.5 rounded-xl bg-[var(--color-danger)]/15 p-2.5 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/25 disabled:opacity-50"
+                title={stopping ? "Stopping…" : "Stop response"}
+                aria-label={stopping ? "Stopping response" : "Stop response"}
               >
-                <Square size={14} fill="currentColor" />
+                {stopping ? <Loader2 size={14} className="animate-spin" /> : <Square size={14} fill="currentColor" />}
               </button>
             ) : (
               <button
                 type="button"
-                onClick={submit}
+                onClick={() => void submit()}
                 disabled={!canSend}
                 className="composer-send mb-0.5"
-                title="Send"
+                title="Send message"
+                aria-label="Send message"
               >
-                <Send size={14} />
+                {submitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
               </button>
             )}
           </div>
@@ -428,7 +547,13 @@ export function Composer({
               <span className="flex items-center gap-1"><AtSign size={10} /> files</span>
               <span className="flex items-center gap-1"><Command size={10} /> commands</span>
             </span>
-            <span>↵ send <span className="opacity-55">·</span> ⇧↵ new line</span>
+            <span>
+              {streaming ? (
+                <span className="text-[var(--color-accent)]">Draft saved while maiku works</span>
+              ) : (
+                <>↵ send <span className="opacity-55">·</span> ⇧↵ new line</>
+              )}
+            </span>
           </div>
         </div>
       </div>

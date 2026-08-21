@@ -472,6 +472,7 @@ function ToolShell({
         type="button"
         onClick={onToggle}
         disabled={!clickable}
+        aria-expanded={clickable ? open : undefined}
         className={cn(
           "tool-row group flex w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs",
           !clickable && "cursor-default",

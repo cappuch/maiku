@@ -17,14 +17,14 @@ export function LoadingGrid({ label = "Working" }: { label?: string }) {
   }, []);
 
   return (
-    <div className="live-loader" aria-live="polite">
+    <div className="live-loader" role="status" aria-label={label}>
       <span aria-hidden className="pixel-grid">
         {cells.map((cell) => (
           <span key={cell.id} style={{ animationDelay: `${cell.delay}ms` }} />
         ))}
       </span>
       <span className="live-loader-label">{label}</span>
-      <span className="live-loader-time">{(tenths / 10).toFixed(1)}s</span>
+      <span className="live-loader-time" aria-hidden>{(tenths / 10).toFixed(1)}s</span>
     </div>
   );
 }

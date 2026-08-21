@@ -48,9 +48,9 @@ type Props = {
   recentDirs: string[];
   onToggleSidebar: () => void;
   onToggleSettings: () => void;
-  onSend: (text: string, images: ImageAttachment[]) => void;
+  onSend: (text: string, images: ImageAttachment[]) => Promise<boolean>;
   onCommand: (command: string) => void;
-  onAbort: () => void;
+  onAbort: () => Promise<boolean>;
   onNewSession: () => void;
   onOpenFolder: () => void;
   onOpenRecentFolder: (path: string) => void;
@@ -91,6 +91,8 @@ export function AppShell(props: Props) {
   // Personalized empty-state greeting — computed once per user, so the random
   // variant doesn't flicker across re-renders.
   const greeting = useMemo(() => greetingFor(state.userName), [state.userName]);
+  const isMac = useMemo(() => /mac|iphone|ipad/i.test(navigator.platform), []);
+  const shortcutPrefix = isMac ? "⌘" : "Ctrl+";
 
   const [dirMenuOpen, setDirMenuOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -112,6 +114,36 @@ export function AppShell(props: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [dirMenuOpen, ctxMenu, editingPath]);
+
+  // Desktop shortcuts keep the most common workspace actions one keystroke away.
+  useEffect(() => {
+    const onShortcut = (event: KeyboardEvent) => {
+      const primaryModifier = isMac
+        ? event.metaKey && !event.ctrlKey
+        : event.ctrlKey && !event.metaKey;
+      if (!primaryModifier || event.altKey) return;
+      const target = event.target;
+      const editing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable);
+      if (editing && !isMac) return;
+      const key = event.key.toLowerCase();
+      if (settingsOpen && key !== ",") return;
+      if (key === "n") {
+        event.preventDefault();
+        props.onNewSession();
+      } else if (key === "o") {
+        event.preventDefault();
+        props.onOpenFolder();
+      } else if (key === "b") {
+        event.preventDefault();
+        props.onToggleSidebar();
+      } else if (key === ",") {
+        event.preventDefault();
+        props.onToggleSettings();
+      }
+    };
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, [props, settingsOpen, isMac]);
 
   const folderSessions = sessions.filter(
     (s) => !state.cwd || s.cwd === state.cwd || s.path.includes(encodeCwd(state.cwd)),
@@ -157,6 +189,7 @@ export function AppShell(props: Props) {
                 dirMenuOpen && "bg-[var(--color-panel-2)]",
               )}
               title={state.cwd || "Open a folder"}
+              aria-expanded={dirMenuOpen}
             >
               <span className="shrink-0">maiku</span>
               <span className="shrink-0 text-[var(--color-muted)]">/</span>
@@ -178,7 +211,20 @@ export function AppShell(props: Props) {
                 ref={dirMenuRef}
                 className="titlebar-no-drag absolute left-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-xl"
               >
-                  <p className="px-3 pt-1.5 pb-1 text-[10px] font-medium tracking-wide text-[var(--color-muted)]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDirMenuOpen(false);
+                      props.onOpenFolder();
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-[var(--color-panel-2)]"
+                  >
+                    <FolderOpen size={14} className="text-[var(--color-accent)]" />
+                    Open folder…
+                    <kbd className="ml-auto text-[10px] text-[var(--color-muted)]">{shortcutPrefix}O</kbd>
+                  </button>
+                  <div className="mx-2 border-t border-[var(--color-line)]" />
+                  <p className="px-3 pt-2 pb-1 text-[10px] font-medium tracking-wide text-[var(--color-muted)]">
                     Recent folders
                   </p>
                   {state.recentDirs.length === 0 && (
@@ -233,7 +279,8 @@ export function AppShell(props: Props) {
             data-wails-no-drag
             onClick={props.onToggleSettings}
             className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"
-            title="Settings"
+            title={`Settings (${shortcutPrefix},)`}
+            aria-label="Open settings"
           >
             <Settings size={15} />
           </button>
@@ -258,15 +305,25 @@ export function AppShell(props: Props) {
             </IconBtn>
             {sidebarOpen && (
               <>
-                <IconBtn title="New session" onClick={props.onNewSession}>
+                <IconBtn title={`New session (${shortcutPrefix}N)`} onClick={props.onNewSession}>
                   <Plus size={16} />
                 </IconBtn>
-                <IconBtn title="Open folder" onClick={props.onOpenFolder}>
+                <IconBtn title={`Open folder (${shortcutPrefix}O)`} onClick={props.onOpenFolder}>
                   <FolderOpen size={16} />
                 </IconBtn>
               </>
             )}
           </div>
+          {!sidebarOpen && (
+            <div className="flex flex-col items-center gap-1 py-2">
+              <IconBtn title={`New session (${shortcutPrefix}N)`} onClick={props.onNewSession}>
+                <Plus size={16} />
+              </IconBtn>
+              <IconBtn title={`Open folder (${shortcutPrefix}O)`} onClick={props.onOpenFolder}>
+                <FolderOpen size={16} />
+              </IconBtn>
+            </div>
+          )}
           {sidebarOpen && (
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
               <p className="mb-2 px-1 text-[10px] font-semibold tracking-[0.12em] text-[var(--color-muted)]">
@@ -283,7 +340,7 @@ export function AppShell(props: Props) {
                   <div
                     key={s.path}
                     className={cn(
-                      "mb-1 w-full rounded-lg transition-colors",
+                      "group relative mb-1 w-full rounded-lg transition-colors",
                       active && "bg-[var(--color-panel-2)] shadow-[inset_0_1px_rgba(255,255,255,.06)] ring-1 ring-[var(--color-line)]",
                       isStreaming && "session-streaming",
                     )}
@@ -292,6 +349,7 @@ export function AppShell(props: Props) {
                       <input
                         ref={(input) => input?.focus()}
                         defaultValue={s.name || s.preview || s.id.slice(0, 8)}
+                        aria-label="Session name"
                         className="w-full rounded-md border border-[var(--color-accent-dim)] bg-[var(--color-panel-2)] px-2 py-1.5 text-xs text-[var(--color-text)] outline-none"
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
@@ -310,22 +368,33 @@ export function AppShell(props: Props) {
                         }}
                       />
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => props.onOpenSession(s.path)}
-                        onContextMenu={(e) => openCtxMenu(e, s.path)}
-                        className="flex w-full items-center rounded-lg px-2 py-2 text-left transition-colors hover:bg-[var(--color-panel-2)]"
-                        title={s.path}
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-medium">
-                            {s.name || s.preview || s.id.slice(0, 8)}
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => props.onOpenSession(s.path)}
+                          onContextMenu={(e) => openCtxMenu(e, s.path)}
+                          className="flex w-full items-center rounded-lg py-2 pr-9 pl-2 text-left transition-colors hover:bg-[var(--color-panel-2)]"
+                          title={s.path}
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-medium">
+                              {s.name || s.preview || s.id.slice(0, 8)}
+                            </span>
+                            <span className="mt-0.5 block truncate font-mono text-[10px] text-[var(--color-muted)]">
+                              {formatTime(s.modTime || s.timestamp)}
+                            </span>
                           </span>
-                          <span className="mt-0.5 block truncate font-mono text-[10px] text-[var(--color-muted)]">
-                            {formatTime(s.modTime || s.timestamp)}
-                          </span>
-                        </span>
-                      </button>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => startRename(s.path)}
+                          className="session-rename-control absolute top-1/2 right-1.5 -translate-y-1/2 rounded-md p-1.5 text-[var(--color-muted)] opacity-0 hover:bg-white/5 hover:text-[var(--color-text)] focus:opacity-100 group-hover:opacity-100"
+                          aria-label={`Rename ${s.name || s.preview || "session"}`}
+                          title="Rename session"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      </>
                     )}
                   </div>
                 );
@@ -337,7 +406,7 @@ export function AppShell(props: Props) {
         {/* Main */}
         <main className="flex min-w-0 flex-1 flex-col">
           {error && (
-            <div className="flex items-center justify-between bg-[color-mix(in_srgb,var(--color-danger)_18%,transparent)] px-4 py-2 text-sm text-[var(--color-danger)]">
+            <div role="alert" className="flex items-center justify-between bg-[color-mix(in_srgb,var(--color-danger)_18%,transparent)] px-4 py-2 text-sm text-[var(--color-danger)]">
               <span>{error}</span>
               <button type="button" className="underline" onClick={props.onDismissError}>
                 dismiss
@@ -345,9 +414,13 @@ export function AppShell(props: Props) {
             </div>
           )}
           {!state.hasApiKey && (
-            <div className="border-b border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] px-4 py-2 text-sm text-[var(--color-accent)]">
-              No API key for <strong>{state.provider || "provider"}</strong>. Open Settings to add one.
-            </div>
+            <button
+              type="button"
+              onClick={props.onToggleSettings}
+              className="border-b border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] px-4 py-2 text-left text-sm text-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_17%,transparent)]"
+            >
+              No API key for <strong>{state.provider || "provider"}</strong>. <span className="underline underline-offset-2">Open Settings</span>
+            </button>
           )}
 
           <Transcript
@@ -359,9 +432,13 @@ export function AppShell(props: Props) {
             thinkingStartedAt={thinkingStartedAt}
             streaming={streaming}
             greeting={greeting}
+            hasWorkspace={!!state.cwd}
+            onOpenFolder={props.onOpenFolder}
+            openFolderShortcut={`${shortcutPrefix}O`}
           />
 
           <Composer
+            draftKey={state.sessionId || state.cwd || "new"}
             streaming={streaming}
             onSend={props.onSend}
             onCommand={props.onCommand}
@@ -442,6 +519,7 @@ function IconBtn({
     <button
       type="button"
       title={title}
+      aria-label={title}
       onClick={onClick}
       className="rounded-md p-1.5 text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"
     >
