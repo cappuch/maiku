@@ -9,19 +9,22 @@ import (
 
 // DefaultToolNames are the built-in tools enabled when the caller does not
 // pass an allowlist.
-var DefaultToolNames = []string{"read", "bash", "edit", "write"}
+var DefaultToolNames = []string{"read", "bash", "edit", "write", "miru", "web_search", "curl"}
 
 // DefaultToolSnippets are the one-line tool descriptions rendered into the
 // system prompt's "Available tools" section.
 var DefaultToolSnippets = map[string]string{
-	"read":     "Read file contents (with optional line offset/limit)",
-	"bash":     "Execute bash commands in the working directory",
-	"edit":     "Edit files with exact find/replace",
-	"write":    "Write files (creates or overwrites)",
-	"grep":     "Search file contents",
-	"find":     "Find files by glob pattern",
-	"ls":       "List directory contents",
-	"subagent": "Delegate a self-contained task to an independent child Maiku and receive a Markdown report",
+	"read":       "Read file contents (with optional line offset/limit)",
+	"bash":       "Execute bash commands in the working directory",
+	"edit":       "Edit files with exact find/replace",
+	"write":      "Write files (creates or overwrites)",
+	"grep":       "Search file contents",
+	"find":       "Find files by glob pattern",
+	"ls":         "List directory contents",
+	"miru":       "Search repository code by meaning",
+	"web_search": "Search the web with DuckDuckGo HTML search",
+	"curl":       "Fetch HTTP(S) page content with a browser user agent",
+	"subagent":   "Delegate a self-contained task to an independent child Maiku and receive a Markdown report",
 }
 
 // BuildSystemPromptOptions configures BuildSystemPrompt.

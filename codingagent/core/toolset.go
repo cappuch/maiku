@@ -25,10 +25,9 @@ func SelectTools(cwd string, allow []string, exclude []string, disableAll bool) 
 
 	names := allow
 	if len(names) == 0 {
-		// Default active set matches TypeScript createCodingTools. When the
-		// caller supplies an allowlist, CreateBuiltinTools uses it exactly,
-		// including optional grep/find/ls tools.
-		names = []string{"read", "bash", "edit", "write", "miru"}
+		// When the caller supplies an allowlist, CreateBuiltinTools uses it
+		// exactly, including optional grep/find/ls tools.
+		names = tools.DefaultToolNames
 	}
 
 	ptrs := tools.CreateBuiltinTools(cwd, names)

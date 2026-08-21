@@ -6,18 +6,28 @@ import "github.com/mikus/maiku/agent"
 type ToolName string
 
 const (
-	ToolRead  ToolName = "read"
-	ToolBash  ToolName = "bash"
-	ToolEdit  ToolName = "edit"
-	ToolWrite ToolName = "write"
-	ToolGrep  ToolName = "grep"
-	ToolFind  ToolName = "find"
-	ToolLs    ToolName = "ls"
-	ToolMiru  ToolName = "miru"
+	ToolRead      ToolName = "read"
+	ToolBash      ToolName = "bash"
+	ToolEdit      ToolName = "edit"
+	ToolWrite     ToolName = "write"
+	ToolGrep      ToolName = "grep"
+	ToolFind      ToolName = "find"
+	ToolLs        ToolName = "ls"
+	ToolMiru      ToolName = "miru"
+	ToolWebSearch ToolName = "web_search"
+	ToolCurl      ToolName = "curl"
 )
 
 // DefaultToolNames are the tools included in coding-agent's default toolset.
-var DefaultToolNames = []string{string(ToolRead), string(ToolBash), string(ToolEdit), string(ToolWrite), string(ToolMiru)}
+var DefaultToolNames = []string{
+	string(ToolRead),
+	string(ToolBash),
+	string(ToolEdit),
+	string(ToolWrite),
+	string(ToolMiru),
+	string(ToolWebSearch),
+	string(ToolCurl),
+}
 
 func createBuiltinTool(name string, cwd string) *agent.AgentTool {
 	switch ToolName(name) {
@@ -37,6 +47,10 @@ func createBuiltinTool(name string, cwd string) *agent.AgentTool {
 		return CreateLsTool(cwd)
 	case ToolMiru:
 		return CreateMiruTool(cwd)
+	case ToolWebSearch:
+		return CreateWebSearchTool()
+	case ToolCurl:
+		return CreateCurlTool()
 	default:
 		return nil
 	}
@@ -45,8 +59,8 @@ func createBuiltinTool(name string, cwd string) *agent.AgentTool {
 // CreateBuiltinTools builds coding-agent's builtin tools for the given
 // working directory.
 //
-// Mirrors TS core/tools/index.ts: if names is empty, the default toolset
-// (read, bash, edit, write) is returned, matching createCodingTools. Passing
+// Mirrors TS core/tools/index.ts: if names is empty, the default toolset is
+// returned, matching createCodingTools. Passing
 // names explicitly (e.g. including "grep", "find", "ls") mirrors
 // createAllTools/createReadOnlyTools-style selection. Unknown names are
 // ignored.

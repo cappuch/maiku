@@ -269,7 +269,7 @@ func PrintVersion() {
 }
 
 func PrintHelp() {
-	fmt.Printf(`%s - lightweight coding agent (read, bash, edit, write)
+	fmt.Printf(`%s - lightweight coding agent with file, shell, and web tools
 
 Usage:
   %s [options] [@files...] [messages...]
@@ -314,7 +314,7 @@ Common API key env vars:
   ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY,
   GROQ_API_KEY, DEEPSEEK_API_KEY, MISTRAL_API_KEY, XAI_API_KEY, …
 
-Built-in tools: read, bash, edit, write (optional: grep, find, ls)
+Built-in tools: read, bash, edit, write, miru, web_search, curl (optional: grep, find, ls)
 `,
 		codingagent.APP_NAME,
 		codingagent.APP_NAME,
