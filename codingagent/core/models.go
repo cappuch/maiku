@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -157,8 +158,9 @@ func defaultModel(providerID string, requireAPIKey bool) (ai.Model, error) {
 }
 
 func providerIDs() []string {
-	var ids []string
-	for _, provider := range providers.All() {
+	allProviders := providers.All()
+	ids := make([]string, 0, len(allProviders))
+	for _, provider := range allProviders {
 		ids = append(ids, provider.ID)
 	}
 	sort.Strings(ids)
@@ -199,11 +201,8 @@ func FormatModelList(search string) string {
 				reasoning = " [reasoning]"
 			}
 			vision := ""
-			for _, in := range model.Input {
-				if in == "image" {
-					vision = " [vision]"
-					break
-				}
+			if slices.Contains(model.Input, "image") {
+				vision = " [vision]"
 			}
 			fmt.Fprintf(&b, "  %s/%s%s%s\n", provider.ID, model.ID, reasoning, vision)
 		}

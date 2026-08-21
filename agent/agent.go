@@ -453,7 +453,8 @@ func (a *Agent) Prompt(ctx context.Context, messages ...AgentMessage) error {
 
 // PromptText starts a new prompt from plain text and optional images.
 func (a *Agent) PromptText(ctx context.Context, text string, images ...ai.ImageContent) error {
-	content := []any{ai.TextContent{Type: "text", Text: text}}
+	content := make([]any, 1, 1+len(images))
+	content[0] = ai.TextContent{Type: "text", Text: text}
 	for _, img := range images {
 		content = append(content, img)
 	}

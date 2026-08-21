@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 
@@ -189,9 +190,7 @@ func decodeSettings(raw map[string]any) Settings {
 // deepMergeSettings in the TypeScript settings manager.
 func deepMergeSettingsMaps(base, overrides map[string]any) map[string]any {
 	merged := make(map[string]any, len(base)+len(overrides))
-	for key, value := range base {
-		merged[key] = value
-	}
+	maps.Copy(merged, base)
 	for key, overrideValue := range overrides {
 		if overrideValue == nil {
 			continue

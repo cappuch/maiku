@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -95,8 +96,8 @@ type ContextUsageEstimate struct {
 func EstimateContextTokens(messages []agent.AgentMessage) ContextUsageEstimate {
 	lastIndex := -1
 	var lastUsage ai.Usage
-	for i := len(messages) - 1; i >= 0; i-- {
-		if usage, ok := assistantUsage(messages[i]); ok {
+	for i, message := range slices.Backward(messages) {
+		if usage, ok := assistantUsage(message); ok {
 			lastUsage, lastIndex = usage, i
 			break
 		}
@@ -229,8 +230,8 @@ func FindCutPoint(messages []agent.AgentMessage, keepRecentTokens int) int {
 
 	cutIndex := cutPoints[0]
 	accumulated := 0
-	for i := len(messages) - 1; i >= 0; i-- {
-		tokens := EstimateTokens(messages[i])
+	for i, message := range slices.Backward(messages) {
+		tokens := EstimateTokens(message)
 		if tokens == 0 {
 			continue
 		}
@@ -259,10 +260,7 @@ func EffectiveKeepRecentTokens(contextWindow int, settings Settings) int {
 	if contextWindow <= 0 {
 		return keep
 	}
-	budget := contextWindow - 2*settings.ReserveTokens
-	if budget < MinKeepRecentTokens {
-		budget = MinKeepRecentTokens
-	}
+	budget := max(contextWindow-2*settings.ReserveTokens, MinKeepRecentTokens)
 	if keep > budget {
 		keep = budget
 	}
@@ -548,11 +546,11 @@ func SummaryMessage(summary string) agent.AgentMessage {
 // ExtractPreviousSummary returns the newest summary already present in the
 // transcript, so a later compaction can update it instead of starting over.
 func ExtractPreviousSummary(messages []agent.AgentMessage) string {
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role != "user" {
+	for _, message := range slices.Backward(messages) {
+		if message.Role != "user" {
 			continue
 		}
-		text := UserText(messages[i].UserContent)
+		text := UserText(message.UserContent)
 		if !strings.HasPrefix(text, SummaryPrefix) {
 			continue
 		}

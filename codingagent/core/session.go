@@ -221,7 +221,7 @@ func readSessionFile(path string) (SessionHeader, []SessionEntry, error) {
 	if err != nil {
 		return SessionHeader{}, nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var header SessionHeader
 	var entries []SessionEntry
@@ -307,7 +307,7 @@ func sessionIsEmpty(path string) bool {
 	if err != nil {
 		return false
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	hasHeader := false
 	scanner := bufio.NewScanner(file)
@@ -341,7 +341,7 @@ func readSessionHeader(path string) (SessionHeader, error) {
 	if err != nil {
 		return SessionHeader{}, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -386,7 +386,7 @@ func (s *SessionManager) Messages() []ai.Message {
 // EnsurePersisted writes the session header to disk if this manager is
 // configured to persist and the file does not exist yet. Empty new sessions
 // otherwise stay invisible to ListSessionSummaries until the first message.
-func (s *SessionManager) EnsurePersisted() error {
+func (s *SessionManager) EnsurePersisted() (returnErr error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.persist || s.file == "" || s.headerWritten {
@@ -399,7 +399,7 @@ func (s *SessionManager) EnsurePersisted() error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { returnErr = errors.Join(returnErr, file.Close()) }()
 
 	headerLine, err := json.Marshal(s.header)
 	if err != nil {
@@ -414,7 +414,7 @@ func (s *SessionManager) EnsurePersisted() error {
 
 // AppendMessage records a message in memory and, for persisted sessions,
 // appends it to the session file.
-func (s *SessionManager) AppendMessage(message ai.Message) error {
+func (s *SessionManager) AppendMessage(message ai.Message) (returnErr error) {
 	encoded, err := EncodeMessage(message)
 	if err != nil {
 		return err
@@ -448,7 +448,7 @@ func (s *SessionManager) AppendMessage(message ai.Message) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { returnErr = errors.Join(returnErr, file.Close()) }()
 
 	if !s.headerWritten {
 		headerLine, err := json.Marshal(s.header)

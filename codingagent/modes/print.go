@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync/atomic"
 
 	"github.com/mikus/maiku/agent"
 	"github.com/mikus/maiku/ai"
@@ -42,16 +43,32 @@ func RunPrintMode(ctx context.Context, session *core.AgentSession, options Print
 
 	jsonMode := options.Mode == "json"
 	writer := bufio.NewWriter(stdout)
-	defer writer.Flush()
+	var outputFailed atomic.Bool
+	finish := func(code int) int {
+		if err := writer.Flush(); err != nil {
+			outputFailed.Store(true)
+		}
+		if outputFailed.Load() {
+			return 1
+		}
+		return code
+	}
 
 	defer session.Dispose()
 
 	if jsonMode {
 		if manager := session.SessionManager(); manager != nil {
 			if header, err := json.Marshal(manager.Header()); err == nil {
-				fmt.Fprintf(writer, "%s\n", header)
-				writer.Flush()
+				if _, err := fmt.Fprintf(writer, "%s\n", header); err != nil {
+					outputFailed.Store(true)
+				}
+				if err := writer.Flush(); err != nil {
+					outputFailed.Store(true)
+				}
 			}
+		}
+		if outputFailed.Load() {
+			return finish(1)
 		}
 
 		unsubscribe := session.Subscribe(func(event agent.AgentEvent) {
@@ -59,9 +76,14 @@ func RunPrintMode(ctx context.Context, session *core.AgentSession, options Print
 			if err != nil {
 				return
 			}
-			fmt.Fprintf(writer, "%s\n", line)
+			if _, err := fmt.Fprintf(writer, "%s\n", line); err != nil {
+				outputFailed.Store(true)
+				return
+			}
 			// Flush per event so consumers can stream the output.
-			writer.Flush()
+			if err := writer.Flush(); err != nil {
+				outputFailed.Store(true)
+			}
 		})
 		defer unsubscribe()
 	}
@@ -73,8 +95,10 @@ func RunPrintMode(ctx context.Context, session *core.AgentSession, options Print
 	prompts = append(prompts, options.Messages...)
 
 	if len(prompts) == 0 {
-		fmt.Fprintln(stderr, "No prompt provided. Pass a message, e.g. pi -p \"list the go files\"")
-		return 1
+		if _, err := fmt.Fprintln(stderr, "No prompt provided. Pass a message, e.g. pi -p \"list the go files\""); err != nil {
+			return finish(1)
+		}
+		return finish(1)
 	}
 
 	for i, prompt := range prompts {
@@ -85,35 +109,44 @@ func RunPrintMode(ctx context.Context, session *core.AgentSession, options Print
 			err = session.Prompt(ctx, prompt)
 		}
 		if err != nil {
-			fmt.Fprintln(stderr, err.Error())
-			return 1
+			if _, writeErr := fmt.Fprintln(stderr, err.Error()); writeErr != nil {
+				return finish(1)
+			}
+			return finish(1)
+		}
+		if outputFailed.Load() {
+			return finish(1)
 		}
 	}
 
 	if jsonMode {
-		return exitCodeFromLastMessage(session)
+		return finish(exitCodeFromLastMessage(session))
 	}
 
 	assistant, ok := session.LastAssistantMessage()
 	if !ok {
-		return 0
+		return finish(0)
 	}
 	if assistant.StopReason == ai.StopError || assistant.StopReason == ai.StopAborted {
 		message := assistant.ErrorMessage
 		if message == "" {
 			message = fmt.Sprintf("Request %s", assistant.StopReason)
 		}
-		writer.Flush()
-		fmt.Fprintln(stderr, message)
-		return 1
+		if _, err := fmt.Fprintln(stderr, message); err != nil {
+			return finish(1)
+		}
+		return finish(1)
 	}
 
 	for _, block := range assistant.Content {
 		if block.Type == "text" {
-			fmt.Fprintf(writer, "%s\n", block.Text)
+			if _, err := fmt.Fprintf(writer, "%s\n", block.Text); err != nil {
+				outputFailed.Store(true)
+				break
+			}
 		}
 	}
-	return 0
+	return finish(0)
 }
 
 func exitCodeFromLastMessage(session *core.AgentSession) int {

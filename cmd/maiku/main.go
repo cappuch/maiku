@@ -12,13 +12,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 1 {
 		switch args[0] {
 		case "--version", "-v", "version":
-			fmt.Fprintf(stdout, "%s\n", codingagent.VERSION)
+			if _, err := fmt.Fprintf(stdout, "%s\n", codingagent.VERSION); err != nil {
+				return 1
+			}
 			return 0
 		}
 	}
 
-	fmt.Fprintf(stderr, "%s: no CLI command implemented in this build\n", codingagent.APP_NAME)
-	fmt.Fprintln(stderr, "Use --version to verify the binary.")
+	if _, err := fmt.Fprintf(stderr, "%s: no CLI command implemented in this build\n", codingagent.APP_NAME); err != nil {
+		return 1
+	}
+	if _, err := fmt.Fprintln(stderr, "Use --version to verify the binary."); err != nil {
+		return 1
+	}
 	return 2
 }
 

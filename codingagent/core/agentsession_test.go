@@ -19,8 +19,8 @@ func TestConvertToLLMDropsThinkingOnlyAssistant(t *testing.T) {
 		},
 		{Role: "user", UserContent: "continue"},
 		{
-			Role:       "assistant",
-			StopReason: ai.StopError,
+			Role:         "assistant",
+			StopReason:   ai.StopError,
 			ErrorMessage: "provider API error",
 		},
 		{

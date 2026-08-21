@@ -89,10 +89,13 @@ func FetchProviderModels(ctx context.Context, provider providers.Provider, apiKe
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return nil, err
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	closeErr := resp.Body.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		snippet := strings.TrimSpace(string(body))

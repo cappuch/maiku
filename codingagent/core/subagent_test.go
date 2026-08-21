@@ -254,13 +254,13 @@ func TestSubagentRunnerAllowsConcurrentChildren(t *testing.T) {
 	})
 	tool := runner.Tool()
 	errs := make(chan error, 2)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		go func() {
 			_, err := tool.Execute(context.Background(), "", map[string]any{"task": "independent task"}, nil)
 			errs <- err
 		}()
 	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := <-errs; err != nil {
 			t.Fatal(err)
 		}

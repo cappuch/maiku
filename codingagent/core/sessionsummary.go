@@ -92,7 +92,7 @@ func firstUserPreview(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	buf := make([]byte, 0, 64*1024)

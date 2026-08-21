@@ -2,6 +2,7 @@ package compaction
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -195,7 +196,7 @@ func TestCompactReturnsErrNothingToCompact(t *testing.T) {
 		Settings: DefaultSettings(),
 		StreamFn: stubStreamFn("unused"),
 	})
-	if err != ErrNothingToCompact {
+	if !errors.Is(err, ErrNothingToCompact) {
 		t.Errorf("err = %v, want ErrNothingToCompact", err)
 	}
 }

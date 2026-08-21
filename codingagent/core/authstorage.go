@@ -299,8 +299,8 @@ var (
 // `${VAR}` are expanded from overrides then the process environment, with
 // `$$` and `$!` as escapes.
 func ResolveConfigValue(value string, overrides map[string]string) string {
-	if strings.HasPrefix(value, "!") {
-		return resolveCommandConfigValue(strings.TrimPrefix(value, "!"))
+	if after, ok := strings.CutPrefix(value, "!"); ok {
+		return resolveCommandConfigValue(after)
 	}
 	return expandConfigTemplate(value, overrides)
 }
@@ -352,12 +352,12 @@ func expandConfigTemplate(value string, overrides map[string]string) string {
 			continue
 		}
 
-		switch next := value[index+1]; {
-		case next == '$' || next == '!':
+		switch next := value[index+1]; next {
+		case '$', '!':
 			out.WriteByte(next)
 			index += 2
 
-		case next == '{':
+		case '{':
 			end := strings.IndexByte(value[index+2:], '}')
 			if end < 0 {
 				out.WriteByte('$')

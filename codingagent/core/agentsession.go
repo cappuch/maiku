@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -106,10 +107,10 @@ func NewAgentSession(options AgentSessionOptions) *AgentSession {
 		thinkingLevel = DefaultThinkingLevel
 	}
 	if !options.Model.Reasoning {
-		switch {
-		case thinkingLevel == agent.ThinkingOff:
+		switch thinkingLevel {
+		case agent.ThinkingOff:
 			// Explicit off (or a non-reasoning model's default) — nothing to do.
-		case thinkingLevel == DefaultThinkingLevel:
+		case DefaultThinkingLevel:
 			// No explicit choice and the catalog says this model doesn't
 			// reason — keep thinking off by default.
 			thinkingLevel = agent.ThinkingOff
@@ -221,7 +222,8 @@ func (s *AgentSession) Prompt(ctx context.Context, text string, images ...ai.Ima
 
 	content := text
 	if len(images) > 0 {
-		parts := []any{ai.TextContent{Type: "text", Text: text}}
+		parts := make([]any, 1, 1+len(images))
+		parts[0] = ai.TextContent{Type: "text", Text: text}
 		for _, image := range images {
 			parts = append(parts, image)
 		}
@@ -338,8 +340,8 @@ func (s *AgentSession) State() agent.AgentState { return s.agent.State() }
 // LastAssistantMessage returns the most recent assistant message, if any.
 func (s *AgentSession) LastAssistantMessage() (ai.AssistantMessage, bool) {
 	messages := s.agent.State().Messages
-	for i := len(messages) - 1; i >= 0; i-- {
-		if assistant, ok := messages[i].AsAssistant(); ok {
+	for _, message := range slices.Backward(messages) {
+		if assistant, ok := message.AsAssistant(); ok {
 			return assistant, true
 		}
 	}

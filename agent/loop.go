@@ -165,7 +165,6 @@ func runLoop(
 					currentContext.Messages = append(currentContext.Messages, message)
 					*newMessages = append(*newMessages, message)
 				}
-				pendingMessages = nil
 			}
 
 			assistantMessage, err := streamAssistantResponse(ctx, &currentContext, config, emit, streamFn)

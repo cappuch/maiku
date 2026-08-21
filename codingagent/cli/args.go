@@ -4,6 +4,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mikus/maiku/codingagent"
@@ -23,12 +24,7 @@ var ValidThinkingLevels = []string{"off", "minimal", "low", "medium", "high", "x
 
 // IsValidThinkingLevel reports whether level is an accepted --thinking value.
 func IsValidThinkingLevel(level string) bool {
-	for _, l := range ValidThinkingLevels {
-		if l == level {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ValidThinkingLevels, level)
 }
 
 // Diagnostic is a parse warning or error surfaced to the user before the
