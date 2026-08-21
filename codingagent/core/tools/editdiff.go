@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -124,7 +125,7 @@ func getReplacementLineRange(lines []lineSpan, r textReplacement) (startLine, en
 		}
 	}
 	if startLine == -1 {
-		return 0, 0, fmt.Errorf("Replacement range is outside the base content.")
+		return 0, 0, fmt.Errorf("replacement range is outside the base content")
 	}
 
 	endLine = startLine
@@ -132,7 +133,7 @@ func getReplacementLineRange(lines []lineSpan, r textReplacement) (startLine, en
 		endLine++
 	}
 	if endLine >= len(lines) {
-		return 0, 0, fmt.Errorf("Replacement range is outside the base content.")
+		return 0, 0, fmt.Errorf("replacement range is outside the base content")
 	}
 
 	return startLine, endLine + 1, nil
@@ -140,8 +141,8 @@ func getReplacementLineRange(lines []lineSpan, r textReplacement) (startLine, en
 
 func applyReplacements(content string, replacements []textReplacement, offset int) string {
 	result := content
-	for i := len(replacements) - 1; i >= 0; i-- {
-		r := replacements[i]
+	for _, r := range slices.Backward(replacements) {
+
 		matchIndex := r.matchIndex - offset
 		result = result[:matchIndex] + r.newText + result[matchIndex+r.matchLength:]
 	}
@@ -155,7 +156,7 @@ func applyReplacementsPreservingUnchangedLines(originalContent, baseContent stri
 	originalLines := splitLinesWithEndings(originalContent)
 	baseLines := getLineSpans(baseContent)
 	if len(originalLines) != len(baseLines) {
-		return "", fmt.Errorf("Cannot preserve unchanged lines because the base content has a different line count.")
+		return "", fmt.Errorf("cannot preserve unchanged lines because the base content has a different line count")
 	}
 
 	type group struct {
@@ -165,7 +166,7 @@ func applyReplacementsPreservingUnchangedLines(originalContent, baseContent stri
 	var groups []group
 	sorted := make([]textReplacement, len(replacements))
 	copy(sorted, replacements)
-	for i := 0; i < len(sorted); i++ {
+	for i := range sorted {
 		for j := i + 1; j < len(sorted); j++ {
 			if sorted[j].matchIndex < sorted[i].matchIndex {
 				sorted[i], sorted[j] = sorted[j], sorted[i]
@@ -267,30 +268,30 @@ func countOccurrences(content, oldText string) int {
 
 func getNotFoundError(path string, editIndex, totalEdits int) error {
 	if totalEdits == 1 {
-		return fmt.Errorf("Could not find the exact text in %s. The old text must match exactly including all whitespace and newlines.", path)
+		return fmt.Errorf("could not find the exact text in %s; the old text must match exactly including all whitespace and newlines", path)
 	}
-	return fmt.Errorf("Could not find edits[%d] in %s. The oldText must match exactly including all whitespace and newlines.", editIndex, path)
+	return fmt.Errorf("could not find edits[%d] in %s; oldText must match exactly including all whitespace and newlines", editIndex, path)
 }
 
 func getDuplicateError(path string, editIndex, totalEdits, occurrences int) error {
 	if totalEdits == 1 {
-		return fmt.Errorf("Found %d occurrences of the text in %s. The text must be unique. Please provide more context to make it unique.", occurrences, path)
+		return fmt.Errorf("found %d occurrences of the text in %s; the text must be unique; provide more context to make it unique", occurrences, path)
 	}
-	return fmt.Errorf("Found %d occurrences of edits[%d] in %s. Each oldText must be unique. Please provide more context to make it unique.", occurrences, editIndex, path)
+	return fmt.Errorf("found %d occurrences of edits[%d] in %s; each oldText must be unique; provide more context to make it unique", occurrences, editIndex, path)
 }
 
 func getEmptyOldTextError(path string, editIndex, totalEdits int) error {
 	if totalEdits == 1 {
-		return fmt.Errorf("oldText must not be empty in %s.", path)
+		return fmt.Errorf("oldText must not be empty in %s", path)
 	}
-	return fmt.Errorf("edits[%d].oldText must not be empty in %s.", editIndex, path)
+	return fmt.Errorf("edits[%d].oldText must not be empty in %s", editIndex, path)
 }
 
 func getNoChangeError(path string, totalEdits int) error {
 	if totalEdits == 1 {
-		return fmt.Errorf("No changes made to %s. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected.", path)
+		return fmt.Errorf("no changes made to %s; the replacement produced identical content, which might indicate an issue with special characters or the text not existing as expected", path)
 	}
-	return fmt.Errorf("No changes made to %s. The replacements produced identical content.", path)
+	return fmt.Errorf("no changes made to %s; the replacements produced identical content", path)
 }
 
 // Edit is a single targeted oldText -> newText replacement.
@@ -371,7 +372,7 @@ func ApplyEditsToNormalizedContent(normalizedContent string, edits []Edit, path 
 		current := matchedEdits[i]
 		if previous.matchIndex+previous.matchLength > current.matchIndex {
 			return AppliedEditsResult{}, fmt.Errorf(
-				"edits[%d] and edits[%d] overlap in %s. Merge them into one edit or target disjoint regions.",
+				"edits[%d] and edits[%d] overlap in %s; merge them into one edit or target disjoint regions",
 				previous.editIndex, current.editIndex, path,
 			)
 		}
@@ -550,10 +551,7 @@ func GenerateDiffString(oldContent, newContent string, contextLines int) DiffLin
 	newLines := splitContentLines(newContent)
 	ops := myersLineDiff(oldLines, newLines)
 	groups := groupDiffOps(ops)
-	maxLineNum := len(oldLines)
-	if len(newLines) > maxLineNum {
-		maxLineNum = len(newLines)
-	}
+	maxLineNum := max(len(newLines), len(oldLines))
 	lineNumWidth := len(fmt.Sprintf("%d", maxLineNum))
 
 	var output []string
@@ -637,10 +635,7 @@ func GenerateDiffString(oldContent, newContent string, contextLines int) DiffLin
 					newLineNum += skipped
 				}
 			case hasTrailingChange:
-				skipped := len(raw) - contextLines
-				if skipped < 0 {
-					skipped = 0
-				}
+				skipped := max(len(raw)-contextLines, 0)
 				if skipped > 0 {
 					output = append(output, fmt.Sprintf(" %s ...", padBlank()))
 					oldLineNum += skipped
@@ -725,14 +720,8 @@ func GenerateUnifiedPatch(path, oldContent, newContent string, contextLines int)
 	windows = append(windows, window{clusterStart, clusterEnd})
 
 	for _, w := range windows {
-		start := w.start - contextLines
-		if start < 0 {
-			start = 0
-		}
-		end := w.end + contextLines
-		if end > len(ops)-1 {
-			end = len(ops) - 1
-		}
+		start := max(w.start-contextLines, 0)
+		end := min(w.end+contextLines, len(ops)-1)
 
 		oldStart := oldPos[start]
 		newStart := newPos[start]

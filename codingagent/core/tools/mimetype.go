@@ -49,14 +49,16 @@ func DetectSupportedImageMimeTypeFromFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
 	buf := make([]byte, imageSniffBytes)
-	n, err := f.Read(buf)
-	if err != nil && n == 0 {
-		if errors.Is(err, io.EOF) {
+	n, readErr := f.Read(buf)
+	if closeErr := f.Close(); closeErr != nil {
+		return "", closeErr
+	}
+	if readErr != nil && n == 0 {
+		if errors.Is(readErr, io.EOF) {
 			return "", nil
 		}
-		return "", err
+		return "", readErr
 	}
 	return DetectSupportedImageMimeType(buf[:n]), nil
 }
@@ -103,16 +105,17 @@ func isBmp(buf []byte) bool {
 	}
 
 	var colorPlanes, bitsPerPixel uint32
-	if dibHeaderSize == 12 {
+	switch {
+	case dibHeaderSize == 12:
 		colorPlanes = uint32(readUint16LE(buf, 22))
 		bitsPerPixel = uint32(readUint16LE(buf, 24))
-	} else if dibHeaderSize >= 40 && dibHeaderSize <= 124 {
+	case dibHeaderSize >= 40 && dibHeaderSize <= 124:
 		if len(buf) < 30 {
 			return false
 		}
 		colorPlanes = uint32(readUint16LE(buf, 26))
 		bitsPerPixel = uint32(readUint16LE(buf, 28))
-	} else {
+	default:
 		return false
 	}
 

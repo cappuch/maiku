@@ -83,7 +83,7 @@ func CreateGrepTool(cwd string) *agent.AgentTool {
 			searchPath := ResolveToCwd(searchDir, cwd)
 			info, statErr := os.Stat(searchPath)
 			if statErr != nil {
-				return agent.AgentToolResult{}, fmt.Errorf("Path not found: %s", searchPath)
+				return agent.AgentToolResult{}, fmt.Errorf("path not found: %s", searchPath)
 			}
 			isDirectory := info.IsDir()
 
@@ -157,14 +157,8 @@ func CreateGrepTool(cwd string) *agent.AgentTool {
 				var block []string
 				start, end := lineNumber, lineNumber
 				if contextValue > 0 {
-					start = lineNumber - contextValue
-					if start < 1 {
-						start = 1
-					}
-					end = lineNumber + contextValue
-					if end > len(lines) {
-						end = len(lines)
-					}
+					start = max(lineNumber-contextValue, 1)
+					end = min(lineNumber+contextValue, len(lines))
 				}
 				for current := start; current <= end; current++ {
 					lineText := ""
@@ -268,13 +262,13 @@ func grepWithRipgrep(ctx context.Context, rgPath, pattern, searchPath, glob stri
 	cmd := exec.CommandContext(ctx, rgPath, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, false, fmt.Errorf("Failed to run ripgrep: %s", err.Error())
+		return nil, false, fmt.Errorf("failed to run ripgrep: %w", err)
 	}
 	var stderrBuf strings.Builder
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
-		return nil, false, fmt.Errorf("Failed to run ripgrep: %s", err.Error())
+		return nil, false, fmt.Errorf("failed to run ripgrep: %w", err)
 	}
 
 	var matches []grepMatch
@@ -329,8 +323,7 @@ func grepWithRipgrep(ctx context.Context, rgPath, pattern, searchPath, glob stri
 		return nil, false, errOperationAborted
 	}
 	if !matchLimitReached && waitErr != nil {
-		var exitErr *exec.ExitError
-		if errors.As(waitErr, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 			code := exitErr.ExitCode()
 			if code != 0 && code != 1 {
 				errMsg := strings.TrimSpace(stderrBuf.String())
@@ -352,9 +345,11 @@ func isBinaryFile(path string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
 	buf := make([]byte, 8000)
 	n, _ := f.Read(buf)
+	if err := f.Close(); err != nil {
+		return false
+	}
 	return bytes.IndexByte(buf[:n], 0) != -1
 }
 
@@ -408,7 +403,7 @@ func grepWithWalk(pattern, searchPath string, glob string, ignoreCase, literal b
 		}
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			return nil
+			return err
 		}
 		content := strings.ReplaceAll(string(data), "\r\n", "\n")
 		content = strings.ReplaceAll(content, "\r", "\n")
@@ -426,7 +421,7 @@ func grepWithWalk(pattern, searchPath string, glob string, ignoreCase, literal b
 	}
 
 	if !info.IsDir() {
-		if err := visit(searchPath); err != nil && err != filepath.SkipAll {
+		if err := visit(searchPath); err != nil && !errors.Is(err, filepath.SkipAll) {
 			return nil, false, err
 		}
 		return matches, matchLimitReached, nil
@@ -434,7 +429,7 @@ func grepWithWalk(pattern, searchPath string, glob string, ignoreCase, literal b
 
 	walkErr := filepath.WalkDir(searchPath, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if d.IsDir() {
 			if d.Name() == ".git" || d.Name() == "node_modules" {

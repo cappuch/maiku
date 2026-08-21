@@ -107,7 +107,7 @@ func CreateFindTool(cwd string) *agent.AgentTool {
 			}
 
 			if !PathExists(searchPath) {
-				return agent.AgentToolResult{}, fmt.Errorf("Path not found: %s", searchPath)
+				return agent.AgentToolResult{}, fmt.Errorf("path not found: %s", searchPath)
 			}
 
 			var relativized []string
@@ -181,13 +181,13 @@ func findWithFd(ctx context.Context, fdPath, pattern, searchPath string, effecti
 	cmd := exec.CommandContext(ctx, fdPath, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to run fd: %s", err.Error())
+		return nil, fmt.Errorf("failed to run fd: %w", err)
 	}
 	var stderrBuf strings.Builder
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("Failed to run fd: %s", err.Error())
+		return nil, fmt.Errorf("failed to run fd: %w", err)
 	}
 
 	var lines []string
@@ -228,7 +228,7 @@ func findWithWalk(pattern, searchPath string, effectiveLimit int) ([]string, err
 	var results []string
 	err := filepath.WalkDir(searchPath, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if p == searchPath {
 			return nil
@@ -243,7 +243,7 @@ func findWithWalk(pattern, searchPath string, effectiveLimit int) ([]string, err
 
 		rel, relErr := filepath.Rel(searchPath, p)
 		if relErr != nil {
-			return nil
+			return relErr
 		}
 		relPosix := filepath.ToSlash(rel)
 		candidate := name

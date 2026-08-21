@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 
 	"github.com/mikus/maiku/agent"
@@ -51,9 +52,7 @@ func prepareEditArguments(args map[string]any) (map[string]any, error) {
 		return args, nil
 	}
 	result := make(map[string]any, len(args))
-	for k, v := range args {
-		result[k] = v
-	}
+	maps.Copy(result, args)
 
 	if editsStr, ok := result["edits"].(string); ok {
 		var parsed []any
@@ -82,13 +81,13 @@ func validateEditInput(args map[string]any) (path string, edits []Edit, err erro
 	path, _ = argString(args, "path")
 	rawEdits, ok := args["edits"].([]any)
 	if !ok || len(rawEdits) == 0 {
-		return "", nil, errors.New("Edit tool input is invalid. edits must contain at least one replacement.")
+		return "", nil, errors.New("edit tool input is invalid: edits must contain at least one replacement")
 	}
 	edits = make([]Edit, 0, len(rawEdits))
 	for _, re := range rawEdits {
 		m, ok := re.(map[string]any)
 		if !ok {
-			return "", nil, errors.New("Edit tool input is invalid. edits must contain at least one replacement.")
+			return "", nil, errors.New("edit tool input is invalid: edits must contain at least one replacement")
 		}
 		oldText, _ := m["oldText"].(string)
 		newText, _ := m["newText"].(string)
@@ -135,9 +134,11 @@ func CreateEditTool(cwd string) *agent.AgentTool {
 					if aerr := checkAborted(ctx); aerr != nil {
 						return agent.AgentToolResult{}, aerr
 					}
-					return agent.AgentToolResult{}, fmt.Errorf("Could not edit file: %s. %s.", path, editAccessErrorMessage(err))
+					return agent.AgentToolResult{}, fmt.Errorf("could not edit file %s: %s", path, editAccessErrorMessage(err))
 				}
-				f.Close()
+				if err := f.Close(); err != nil {
+					return agent.AgentToolResult{}, fmt.Errorf("could not edit file %s: %w", path, err)
+				}
 				if err := checkAborted(ctx); err != nil {
 					return agent.AgentToolResult{}, err
 				}

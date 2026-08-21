@@ -45,9 +45,7 @@ func ExpandPath(filePath string) string {
 
 func normalizePath(input string) string {
 	normalized := unicodeSpacesRe.ReplaceAllString(input, " ")
-	if strings.HasPrefix(normalized, "@") {
-		normalized = normalized[1:]
-	}
+	normalized = strings.TrimPrefix(normalized, "@")
 
 	if normalized == "~" {
 		if home, err := os.UserHomeDir(); err == nil {

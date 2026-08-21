@@ -38,19 +38,19 @@ type BashToolDetails struct {
 	FullOutputPath string
 }
 
-func resolveTimeoutMs(timeoutSeconds *int) (*time.Duration, error) {
+func resolveTimeoutMs(timeoutSeconds *float64) (*time.Duration, error) {
 	if timeoutSeconds == nil {
 		return nil, nil
 	}
-	t := float64(*timeoutSeconds)
+	t := *timeoutSeconds
 	if math.IsNaN(t) || math.IsInf(t, 0) || t <= 0 {
-		return nil, errors.New("Invalid timeout: must be a finite number of seconds")
+		return nil, errors.New("invalid timeout: must be a finite number of seconds")
 	}
 	timeoutMs := t * 1000
 	if timeoutMs > maxTimeoutMs {
-		return nil, fmt.Errorf("Invalid timeout: maximum is %d seconds", maxTimeoutSeconds)
+		return nil, fmt.Errorf("invalid timeout: maximum is %d seconds", maxTimeoutSeconds)
 	}
-	d := time.Duration(timeoutMs) * time.Millisecond
+	d := time.Duration(t * float64(time.Second))
 	return &d, nil
 }
 
@@ -155,7 +155,7 @@ func CreateBashTool(cwd string) *agent.AgentTool {
 		Label: "bash",
 		Execute: func(ctx context.Context, _ string, params map[string]any, _ agent.AgentToolUpdateCallback) (agent.AgentToolResult, error) {
 			command, _ := argString(params, "command")
-			timeoutSeconds := argIntPtr(params, "timeout")
+			timeoutSeconds := argNumberPtr(params, "timeout")
 
 			timeoutDuration, err := resolveTimeoutMs(timeoutSeconds)
 			if err != nil {
@@ -166,7 +166,7 @@ func CreateBashTool(cwd string) *agent.AgentTool {
 				return agent.AgentToolResult{}, err
 			}
 			if _, statErr := os.Stat(cwd); statErr != nil {
-				return agent.AgentToolResult{}, fmt.Errorf("Working directory does not exist: %s\nCannot execute bash commands.", cwd)
+				return agent.AgentToolResult{}, fmt.Errorf("working directory does not exist: %s; cannot execute bash commands", cwd)
 			}
 
 			runCtx := ctx
@@ -222,7 +222,7 @@ func CreateBashTool(cwd string) *agent.AgentTool {
 				}
 				secs := "?"
 				if timeoutSeconds != nil {
-					secs = fmt.Sprintf("%d", *timeoutSeconds)
+					secs = fmt.Sprintf("%g", *timeoutSeconds)
 				}
 				return agent.AgentToolResult{}, errors.New(appendStatus(text, fmt.Sprintf("Command timed out after %s seconds", secs)))
 			}
@@ -234,8 +234,7 @@ func CreateBashTool(cwd string) *agent.AgentTool {
 
 			exitCode := 0
 			if waitErr != nil {
-				var exitErr *exec.ExitError
-				if errors.As(waitErr, &exitErr) {
+				if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 					exitCode = exitErr.ExitCode()
 				} else {
 					return agent.AgentToolResult{}, waitErr
@@ -256,4 +255,3 @@ func CreateBashTool(cwd string) *agent.AgentTool {
 		},
 	}
 }
-

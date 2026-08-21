@@ -36,12 +36,20 @@ func argNumber(args map[string]any, key string) (float64, bool) {
 	return 0, false
 }
 
-func argIntPtr(args map[string]any, key string) *int {
+func argNumberPtr(args map[string]any, key string) *float64 {
 	n, ok := argNumber(args, key)
 	if !ok {
 		return nil
 	}
-	i := int(n)
+	return &n
+}
+
+func argIntPtr(args map[string]any, key string) *int {
+	n := argNumberPtr(args, key)
+	if n == nil {
+		return nil
+	}
+	i := int(*n)
 	return &i
 }
 

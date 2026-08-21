@@ -12,7 +12,7 @@ import (
 	"github.com/mikus/maiku/ai"
 )
 
-var errOperationAborted = errors.New("Operation aborted")
+var errOperationAborted = errors.New("operation aborted")
 
 func checkAborted(ctx context.Context) error {
 	if ctx != nil && ctx.Err() != nil {
@@ -119,21 +119,15 @@ func readTextResult(absolutePath, displayPath string, offset, limit *int) (agent
 
 	if startLine >= len(allLines) {
 		if offset != nil {
-			return agent.AgentToolResult{}, fmt.Errorf("Offset %d is beyond end of file (%d lines total)", *offset, len(allLines))
+			return agent.AgentToolResult{}, fmt.Errorf("offset %d is beyond end of file (%d lines total)", *offset, len(allLines))
 		}
-		return agent.AgentToolResult{}, fmt.Errorf("Offset is beyond end of file (%d lines total)", len(allLines))
+		return agent.AgentToolResult{}, fmt.Errorf("offset is beyond end of file (%d lines total)", len(allLines))
 	}
 
 	var selectedContent string
 	var userLimitedLines *int
 	if limit != nil {
-		endLine := startLine + *limit
-		if endLine > len(allLines) {
-			endLine = len(allLines)
-		}
-		if endLine < startLine {
-			endLine = startLine
-		}
+		endLine := max(min(startLine+*limit, len(allLines)), startLine)
 		selectedContent = strings.Join(allLines[startLine:endLine], "\n")
 		n := endLine - startLine
 		userLimitedLines = &n

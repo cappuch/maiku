@@ -56,7 +56,7 @@ func CreateLsTool(cwd string) *agent.AgentTool {
 			}
 
 			if !PathExists(dirPath) {
-				return agent.AgentToolResult{}, fmt.Errorf("Path not found: %s", dirPath)
+				return agent.AgentToolResult{}, fmt.Errorf("path not found: %s", dirPath)
 			}
 
 			info, err := os.Stat(dirPath)
@@ -64,12 +64,12 @@ func CreateLsTool(cwd string) *agent.AgentTool {
 				return agent.AgentToolResult{}, err
 			}
 			if !info.IsDir() {
-				return agent.AgentToolResult{}, fmt.Errorf("Not a directory: %s", dirPath)
+				return agent.AgentToolResult{}, fmt.Errorf("not a directory: %s", dirPath)
 			}
 
 			entries, err := os.ReadDir(dirPath)
 			if err != nil {
-				return agent.AgentToolResult{}, fmt.Errorf("Cannot read directory: %s", err.Error())
+				return agent.AgentToolResult{}, fmt.Errorf("cannot read directory: %w", err)
 			}
 
 			names := make([]string, len(entries))
