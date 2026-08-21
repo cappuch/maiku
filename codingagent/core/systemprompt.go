@@ -14,13 +14,14 @@ var DefaultToolNames = []string{"read", "bash", "edit", "write"}
 // DefaultToolSnippets are the one-line tool descriptions rendered into the
 // system prompt's "Available tools" section.
 var DefaultToolSnippets = map[string]string{
-	"read":  "Read file contents (with optional line offset/limit)",
-	"bash":  "Execute bash commands in the working directory",
-	"edit":  "Edit files with exact find/replace",
-	"write": "Write files (creates or overwrites)",
-	"grep":  "Search file contents",
-	"find":  "Find files by glob pattern",
-	"ls":    "List directory contents",
+	"read":     "Read file contents (with optional line offset/limit)",
+	"bash":     "Execute bash commands in the working directory",
+	"edit":     "Edit files with exact find/replace",
+	"write":    "Write files (creates or overwrites)",
+	"grep":     "Search file contents",
+	"find":     "Find files by glob pattern",
+	"ls":       "List directory contents",
+	"subagent": "Delegate a self-contained task to an independent child Maiku and receive a Markdown report",
 }
 
 // BuildSystemPromptOptions configures BuildSystemPrompt.
@@ -108,6 +109,9 @@ func BuildSystemPrompt(options BuildSystemPromptOptions) string {
 	}
 	if has["read"] && (has["edit"] || has["write"]) {
 		addGuideline("Prefer reading a file before editing it")
+	}
+	if has[SubagentToolName] {
+		addGuideline("Use subagents for self-contained delegated work. Issue multiple subagent calls in one response when tasks are independent, then review their reports and remain responsible for the overall result")
 	}
 	for _, guideline := range options.PromptGuidelines {
 		addGuideline(guideline)

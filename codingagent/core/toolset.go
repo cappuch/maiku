@@ -54,3 +54,43 @@ func SelectTools(cwd string, allow []string, exclude []string, disableAll bool) 
 	}
 	return selected
 }
+
+// SelectRootTools extends the normal tool registry with a root-owned
+// subagent tool. SelectTools deliberately remains unaware of subagents, so it
+// is safe to use for child sessions and recursive delegation is impossible.
+//
+// With no allowlist, subagent is enabled alongside the normal defaults. With
+// an explicit allowlist it must be named explicitly. The existing denylist
+// and disableAll behavior applies to it as well.
+func SelectRootTools(cwd string, allow []string, exclude []string, disableAll bool, runner *SubagentRunner) []agent.AgentTool {
+	if disableAll {
+		return nil
+	}
+
+	excluded := make(map[string]bool, len(exclude))
+	for _, name := range exclude {
+		excluded[name] = true
+	}
+
+	includeSubagent := len(allow) == 0
+	standardAllow := allow
+	if len(allow) > 0 {
+		standardAllow = make([]string, 0, len(allow))
+		for _, name := range allow {
+			if name == SubagentToolName {
+				includeSubagent = true
+				continue
+			}
+			standardAllow = append(standardAllow, name)
+		}
+	}
+
+	var selected []agent.AgentTool
+	if len(allow) == 0 || len(standardAllow) > 0 {
+		selected = SelectTools(cwd, standardAllow, exclude, false)
+	}
+	if runner != nil && includeSubagent && !excluded[SubagentToolName] {
+		selected = append(selected, runner.Tool())
+	}
+	return selected
+}

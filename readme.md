@@ -40,3 +40,7 @@ open desktop/build/bin/maiku.app
 | `.maiku/` | Project overrides |
 
 Env: `MAIKU_AGENT_DIR`, `MAIKU_SESSION_DIR`
+
+## Subagents
+
+Root Maiku sessions expose a `subagent` tool for delegating self-contained work. Each call runs an independent, ephemeral child with `read`, `bash`, `edit`, and `write`; children cannot delegate again. Independent calls emitted in the same turn run concurrently and return concise Markdown reports to the root orchestrator.

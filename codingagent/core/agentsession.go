@@ -59,6 +59,10 @@ type AgentSessionOptions struct {
 	Tools         []agent.AgentTool
 	// APIKey overrides the provider environment variable when set.
 	APIKey string
+	// StreamFn overrides the provider stream runtime. It defaults to
+	// ai.StreamSimple and is used by root-owned subagents to inherit custom
+	// host runtimes without changing the agent loop.
+	StreamFn agent.StreamFn
 	// Sessions persists the transcript. May be nil for ephemeral runs.
 	Sessions *SessionManager
 	// Compaction controls automatic context compaction after each prompt.
@@ -126,6 +130,10 @@ func NewAgentSession(options AgentSessionOptions) *AgentSession {
 
 	model := options.Model
 	apiKey := options.APIKey
+	streamFn := options.StreamFn
+	if streamFn == nil {
+		streamFn = ai.StreamSimple
+	}
 
 	a := agent.NewAgent(agent.AgentOptions{
 		InitialState: &agent.AgentInitialState{
@@ -136,7 +144,7 @@ func NewAgentSession(options AgentSessionOptions) *AgentSession {
 			Messages:      initialMessages,
 		},
 		ConvertToLLM: ConvertToLLM,
-		StreamFn:     ai.StreamSimple,
+		StreamFn:     streamFn,
 		GetAPIKey: func(ctx context.Context, provider string) (string, error) {
 			if apiKey != "" {
 				return apiKey, nil

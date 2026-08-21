@@ -36,6 +36,7 @@ type liveSession struct {
 	id        string
 	mgr       *core.SessionManager
 	session   *core.AgentSession
+	subagents *core.SubagentRunner
 	cancel    context.CancelFunc
 	unsub     func()
 	usage     UsageTotals
@@ -330,6 +331,10 @@ func (a *App) disposeLiveLocked(live *liveSession) {
 		live.unsub()
 		live.unsub = nil
 	}
+	if live.subagents != nil {
+		live.subagents.AbortAll()
+		live.subagents = nil
+	}
 	if live.session != nil {
 		if live.session.State().IsStreaming {
 			live.session.Abort()
@@ -398,7 +403,19 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 		cwd, _ = os.Getwd()
 	}
 
-	tools := core.SelectTools(cwd, nil, nil, false)
+	settings := core.LoadSettings(cwd, codingagent.GetAgentDir())
+	subagents := core.NewSubagentRunner(core.SubagentToolOptions{
+		Cwd:           cwd,
+		AgentDir:      codingagent.GetAgentDir(),
+		Model:         a.model,
+		ThinkingLevel: a.thinking,
+		Retry: ai.RetryPolicy{
+			Enabled:     settings.Settings.RetryEnabled(),
+			MaxRetries:  settings.Settings.RetryMaxRetries(),
+			BaseDelayMs: settings.Settings.RetryBaseDelayMs(),
+		},
+	})
+	tools := core.SelectRootTools(cwd, nil, nil, false, subagents)
 	toolNames := make([]string, 0, len(tools))
 	for _, t := range tools {
 		toolNames = append(toolNames, t.Name)
@@ -414,7 +431,6 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 		Skills:        skills,
 	})
 
-	settings := core.LoadSettings(cwd, codingagent.GetAgentDir())
 	session := core.NewAgentSession(core.AgentSessionOptions{
 		Model:         a.model,
 		ThinkingLevel: a.thinking,
@@ -435,9 +451,10 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 
 	id := mgr.Header().ID
 	live := &liveSession{
-		id:      id,
-		mgr:     mgr,
-		session: session,
+		id:        id,
+		mgr:       mgr,
+		session:   session,
+		subagents: subagents,
 	}
 	live.recomputeUsage(mgr.Messages())
 	live.unsub = session.Subscribe(func(event agent.AgentEvent) {
@@ -471,7 +488,7 @@ func (a *App) onAgentEvent(sessionID string, event agent.AgentEvent) {
 	case agent.EventMessageEnd:
 		a.mu.Lock()
 		live := a.live[sessionID]
-		if live != nil && event.Message.Role == "assistant" && event.Message.Usage != nil {
+		if live != nil && hasBillableUsage(event.Message) {
 			live.addUsage(*event.Message.Usage)
 		}
 		var usage UsageTotals
@@ -765,9 +782,26 @@ func (live *liveSession) addUsage(u ai.Usage) {
 func (live *liveSession) recomputeUsage(messages []ai.Message) {
 	live.usage = UsageTotals{}
 	for _, m := range messages {
-		if m.Role == "assistant" && m.Usage != nil && m.StopReason != ai.StopError && m.StopReason != ai.StopAborted {
+		if hasBillableUsage(m) {
 			live.addUsage(*m.Usage)
 		}
+	}
+}
+
+// hasBillableUsage includes provider usage from root assistant turns and usage
+// reported by successful tools such as subagent. Tool usage is persisted on
+// tool-result messages, so reopening a session preserves the full cost total.
+func hasBillableUsage(message ai.Message) bool {
+	if message.Usage == nil {
+		return false
+	}
+	switch message.Role {
+	case "assistant":
+		return message.StopReason != ai.StopError && message.StopReason != ai.StopAborted
+	case "toolResult":
+		return !message.IsError
+	default:
+		return false
 	}
 }
 
@@ -915,6 +949,10 @@ func (a *App) SetModel(provider, modelID string) error {
 		// model to reasoning so a saved thinking level reaches the API.
 		live.session.Agent().SetModel(a.model)
 		live.session.Agent().SetThinkingLevel(a.thinking)
+		if live.subagents != nil {
+			live.subagents.SetModel(a.model)
+			live.subagents.SetThinkingLevel(a.thinking)
+		}
 	}
 	return nil
 }
@@ -939,6 +977,10 @@ func (a *App) SetThinking(level string) error {
 		live.session.Agent().SetThinkingLevel(a.thinking)
 		if level != string(agent.ThinkingOff) {
 			live.session.Agent().SetModel(a.model)
+		}
+		if live.subagents != nil {
+			live.subagents.SetModel(a.model)
+			live.subagents.SetThinkingLevel(a.thinking)
 		}
 	}
 	return nil

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, FilePenLine, FilePlus2, FileText, Terminal } from "lucide-react";
+import { Bot, ChevronDown, FilePenLine, FilePlus2, FileText, Terminal } from "lucide-react";
 import type { UIMessage } from "../types";
 import { cn } from "../lib/utils";
+import { Markdown } from "./Markdown";
 
 export function ToolCallCard({ message }: { message: UIMessage }) {
   const name = (message.toolName || "tool").toLowerCase();
@@ -17,7 +18,34 @@ export function ToolCallCard({ message }: { message: UIMessage }) {
   if (name === "edit") {
     return <EditCard message={message} path={fileLabel} />;
   }
+  if (name === "subagent") {
+    return <SubagentCard message={message} />;
+  }
   return <GenericToolCard message={message} />;
+}
+
+function SubagentCard({ message }: { message: UIMessage }) {
+  const [open, setOpen] = useState(false);
+  const task = toolStringArg(message.args, "task") || "delegated task";
+  const report = message.text && message.text !== "running…" ? message.text : "";
+
+  useEffect(() => {
+    if (message.isError && report) setOpen(true);
+  }, [message.isError, report]);
+
+  return (
+    <ToolShell
+      icon={<Bot size={13} className="text-[var(--color-accent)]" />}
+      label={message.streaming ? "Subagent" : message.isError ? "Subagent failed" : "Subagent report"}
+      chip={task}
+      streaming={message.streaming}
+      isError={message.isError}
+      open={open}
+      onToggle={report ? () => setOpen((value) => !value) : undefined}
+    >
+      {report ? <Markdown content={report} className="text-xs" /> : null}
+    </ToolShell>
+  );
 }
 
 function ReadCard({ message, path }: { message: UIMessage; path: string }) {
@@ -320,7 +348,7 @@ function toolSummary(args: unknown): string {
   if (typeof command === "string") return command;
   const path = toolPath(args);
   if (path) return path;
-  const text = object.query ?? object.pattern;
+  const text = object.task ?? object.query ?? object.pattern;
   return typeof text === "string" ? text : "Details";
 }
 
