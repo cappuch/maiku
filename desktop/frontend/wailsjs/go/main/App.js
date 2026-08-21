@@ -82,6 +82,10 @@ export function SetModel(arg1, arg2) {
   return window['go']['main']['App']['SetModel'](arg1, arg2);
 }
 
+export function SetSubagentEnabled(arg1) {
+  return window['go']['main']['App']['SetSubagentEnabled'](arg1);
+}
+
 export function SetThinking(arg1) {
   return window['go']['main']['App']['SetThinking'](arg1);
 }

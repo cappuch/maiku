@@ -419,21 +419,12 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 			BaseDelayMs: settings.Settings.RetryBaseDelayMs(),
 		},
 	})
-	tools := core.SelectRootTools(cwd, nil, nil, false, subagents)
-	toolNames := make([]string, 0, len(tools))
-	for _, t := range tools {
-		toolNames = append(toolNames, t.Name)
-	}
-	contextFiles := core.LoadProjectContextFiles(cwd, codingagent.GetAgentDir())
-	skills := core.LoadSkills(core.LoadSkillsOptions{
-		Cwd: cwd, AgentDir: codingagent.GetAgentDir(), IncludeDefaults: true,
-	}).Skills
-	systemPrompt := core.BuildSystemPrompt(core.BuildSystemPromptOptions{
-		SelectedTools: toolNames,
-		Cwd:           cwd,
-		ContextFiles:  contextFiles,
-		Skills:        skills,
-	})
+	tools, systemPrompt := rootAgentConfig(
+		cwd,
+		codingagent.GetAgentDir(),
+		subagents,
+		settings.Settings.SubagentEnabled(),
+	)
 
 	session := core.NewAgentSession(core.AgentSessionOptions{
 		Model:         a.model,
@@ -464,6 +455,35 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 		a.onAgentEvent(sessionID, event)
 	})
 	return live, nil
+}
+
+// rootAgentConfig builds the root tool registry and its matching system prompt.
+// These must change together so disabling subagents does not leave stale
+// orchestration instructions in the prompt.
+func rootAgentConfig(cwd, agentDir string, subagents *core.SubagentRunner, subagentEnabled bool) ([]agent.AgentTool, string) {
+	if subagents != nil {
+		subagents.SetEnabled(subagentEnabled)
+	}
+	var exclude []string
+	if !subagentEnabled {
+		exclude = []string{core.SubagentToolName}
+	}
+	tools := core.SelectRootTools(cwd, nil, exclude, false, subagents)
+	toolNames := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		toolNames = append(toolNames, tool.Name)
+	}
+	contextFiles := core.LoadProjectContextFiles(cwd, agentDir)
+	skills := core.LoadSkills(core.LoadSkillsOptions{
+		Cwd: cwd, AgentDir: agentDir, IncludeDefaults: true,
+	}).Skills
+	prompt := core.BuildSystemPrompt(core.BuildSystemPromptOptions{
+		SelectedTools: toolNames,
+		Cwd:           cwd,
+		ContextFiles:  contextFiles,
+		Skills:        skills,
+	})
+	return tools, prompt
 }
 
 func (a *App) onAgentEvent(sessionID string, event agent.AgentEvent) {
@@ -1047,6 +1067,31 @@ func (a *App) SetThinking(level string) error {
 			live.subagents.SetModel(a.model)
 			live.subagents.SetThinkingLevel(a.thinking)
 		}
+	}
+	return nil
+}
+
+// SetSubagentEnabled persists the subagent toggle and applies it immediately
+// to every live root session. Disabling also cancels children already running.
+func (a *App) SetSubagentEnabled(enabled bool) error {
+	agentDir := codingagent.GetAgentDir()
+	if err := core.SetSubagentEnabled(agentDir, enabled); err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, live := range a.live {
+		if live == nil || live.session == nil {
+			continue
+		}
+		cwd := a.cwd
+		if live.mgr != nil && live.mgr.Header().Cwd != "" {
+			cwd = live.mgr.Header().Cwd
+		}
+		tools, prompt := rootAgentConfig(cwd, agentDir, live.subagents, enabled)
+		live.session.Agent().SetTools(tools)
+		live.session.Agent().SetSystemPrompt(prompt)
 	}
 	return nil
 }

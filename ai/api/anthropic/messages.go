@@ -43,8 +43,9 @@ type anthropicImageSource struct {
 }
 
 type anthropicImageBlock struct {
-	Type   string               `json:"type"`
-	Source anthropicImageSource `json:"source"`
+	Type         string               `json:"type"`
+	Source       anthropicImageSource `json:"source"`
+	CacheControl json.RawMessage      `json:"cache_control,omitempty"`
 }
 
 type anthropicThinkingBlock struct {
@@ -66,10 +67,11 @@ type anthropicToolUseBlock struct {
 }
 
 type anthropicToolResultBlock struct {
-	Type      string `json:"type"`
-	ToolUseID string `json:"tool_use_id"`
-	Content   any    `json:"content"`
-	IsError   bool   `json:"is_error,omitempty"`
+	Type         string          `json:"type"`
+	ToolUseID    string          `json:"tool_use_id"`
+	Content      any             `json:"content"`
+	IsError      bool            `json:"is_error,omitempty"`
+	CacheControl json.RawMessage `json:"cache_control,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -366,8 +368,43 @@ func sanitizeErrorBody(b []byte) string {
 
 // ---- Request building ----
 
+// resolveCacheControl picks the cache_control marker for this request.
+// Defaults to "short" (5-minute TTL) so prompt caching is on out of the box;
+// callers may opt out (CacheNone, e.g. compaction summaries) or extend to
+// "long" (1h TTL) when the provider supports it.
+func resolveCacheControl(model ai.Model, opts *ai.SimpleStreamOptions) (json.RawMessage, bool) {
+	retention := opts.CacheRetention
+	if retention == "" || retention == ai.CacheShort {
+		retention = ai.CacheShort
+	}
+	if retention == ai.CacheNone {
+		return nil, false
+	}
+	if retention == ai.CacheLong && !supportsLongCacheRetention(model) {
+		retention = ai.CacheShort // providers that reject ttl get the default TTL
+	}
+	return json.RawMessage(`{"type":"ephemeral"` + cacheTTL(retention) + `}`), true
+}
+
+func cacheTTL(retention ai.CacheRetention) string {
+	if retention == ai.CacheLong {
+		return `,"ttl":"1h"`
+	}
+	return "" // default 5-minute TTL
+}
+
+// supportsLongCacheRetention gates 1h TTL; first-party Anthropic models accept it,
+// some compatible providers reject the extension and should fall back to short.
+func supportsLongCacheRetention(model ai.Model) bool {
+	if v, ok := model.Compat["supportsLongCacheRetention"].(bool); ok {
+		return v
+	}
+	return true
+}
+
 func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptions) (*anthropicRequest, error) {
-	messages, err := convertMessages(ctxData.Messages)
+	cacheControl, cacheEnabled := resolveCacheControl(model, opts)
+	messages, err := convertMessages(ctxData.Messages, cacheControl, cacheEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +425,11 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 	}
 
 	if ctxData.SystemPrompt != "" {
-		req.System = []anthropicTextBlock{{Type: "text", Text: ctxData.SystemPrompt}}
+		system := anthropicTextBlock{Type: "text", Text: ctxData.SystemPrompt}
+		if cacheEnabled {
+			system.CacheControl = cacheControl
+		}
+		req.System = []anthropicTextBlock{system}
 	}
 
 	thinkingEnabled := model.Reasoning && opts.Reasoning != "" && opts.Reasoning != ai.ThinkingOff
@@ -398,16 +439,23 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 
 	if len(ctxData.Tools) > 0 {
 		tools := make([]anthropicTool, 0, len(ctxData.Tools))
-		for _, t := range ctxData.Tools {
+		for i, t := range ctxData.Tools {
 			params := t.Parameters
 			if len(params) == 0 {
 				params = json.RawMessage(`{"type":"object","properties":{}}`)
 			}
-			tools = append(tools, anthropicTool{
+			tool := anthropicTool{
 				Name:        t.Name,
 				Description: t.Description,
 				InputSchema: params,
-			})
+			}
+			// A breakpoint on the LAST tool definition pins the whole tool
+			// section so schemas are cache-read back even after the transcript
+			// prefix changes (compaction, new turns) instead of rewriting.
+			if cacheEnabled && i == len(ctxData.Tools)-1 {
+				tool.CacheControl = cacheControl
+			}
+			tools = append(tools, tool)
 		}
 		req.Tools = tools
 	}
@@ -441,7 +489,7 @@ func normalizeToolCallID(id string) string {
 	return id
 }
 
-func convertMessages(messages []ai.Message) ([]anthropicMessage, error) {
+func convertMessages(messages []ai.Message, cacheControl json.RawMessage, cacheEnabled bool) ([]anthropicMessage, error) {
 	var out []anthropicMessage
 
 	for i := 0; i < len(messages); i++ {
@@ -513,6 +561,34 @@ func convertMessages(messages []ai.Message) ([]anthropicMessage, error) {
 			out = append(out, anthropicMessage{Role: "user", Content: toolResults})
 		}
 	}
+
+	// Rolling breakpoint on the LAST conversation block: the newest user turn
+	// (or tool-result turn) is always written; everything below the previous
+	// turn's boundary is cache-read back, so cache hits climb with the
+	// transcript instead of rewriting the whole prefix every turn.
+	if cacheEnabled && len(out) > 0 {
+		last := &out[len(out)-1]
+		if last.Role == "user" {
+			switch blocks := last.Content.(type) {
+			case []any:
+				if len(blocks) > 0 {
+					lastBlock := blocks[len(blocks)-1]
+					switch b := lastBlock.(type) {
+					case anthropicTextBlock:
+						b.CacheControl = cacheControl
+						blocks[len(blocks)-1] = b
+					case anthropicImageBlock:
+						b.CacheControl = cacheControl
+						blocks[len(blocks)-1] = b
+					case anthropicToolResultBlock:
+						b.CacheControl = cacheControl
+						blocks[len(blocks)-1] = b
+					}
+				}
+			}
+		}
+	}
+
 	return out, nil
 }
 

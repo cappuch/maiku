@@ -143,6 +143,7 @@ type SubagentRunner struct {
 	options  SubagentToolOptions
 	model    ai.Model
 	thinking agent.ThinkingLevel
+	enabled  bool
 	active   map[string]*AgentSession
 }
 
@@ -152,6 +153,7 @@ func NewSubagentRunner(options SubagentToolOptions) *SubagentRunner {
 		options:  options,
 		model:    options.Model,
 		thinking: options.ThinkingLevel,
+		enabled:  true,
 		active:   make(map[string]*AgentSession),
 	}
 }
@@ -170,6 +172,25 @@ func (r *SubagentRunner) SetThinkingLevel(level agent.ThinkingLevel) {
 	r.mu.Lock()
 	r.thinking = level
 	r.mu.Unlock()
+}
+
+// SetEnabled controls whether new children may start. Disabling also aborts
+// children already running, including calls from a root turn that captured an
+// older copy of the tool registry.
+func (r *SubagentRunner) SetEnabled(enabled bool) {
+	r.mu.Lock()
+	r.enabled = enabled
+	var children []*AgentSession
+	if !enabled {
+		children = make([]*AgentSession, 0, len(r.active))
+		for _, child := range r.active {
+			children = append(children, child)
+		}
+	}
+	r.mu.Unlock()
+	for _, child := range children {
+		child.Abort()
+	}
 }
 
 // ActiveCount reports how many child sessions are currently running.
@@ -204,6 +225,12 @@ func (r *SubagentRunner) Tool() agent.AgentTool {
 		},
 		Label: SubagentToolName,
 		Execute: func(ctx context.Context, toolCallID string, params map[string]any, onUpdate agent.AgentToolUpdateCallback) (agent.AgentToolResult, error) {
+			r.mu.RLock()
+			enabled := r.enabled
+			r.mu.RUnlock()
+			if !enabled {
+				return agent.AgentToolResult{}, errors.New(subagentFailureReport("Subagents are disabled by the current settings.", ""))
+			}
 			task, _ := params["task"].(string)
 			task = strings.TrimSpace(task)
 			if task == "" {
@@ -220,16 +247,19 @@ func (r *SubagentRunner) runtimeSnapshot() (SubagentToolOptions, ai.Model, agent
 	return r.options, r.model, r.thinking
 }
 
-func (r *SubagentRunner) addActive(id string, child *AgentSession) string {
+func (r *SubagentRunner) addActive(id string, child *AgentSession) (string, bool) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.enabled {
+		return id, false
+	}
 	// Provider tool-call IDs should be unique. Keep the registry correct even
 	// for a malformed/hand-written empty or duplicate id.
 	if id == "" || r.active[id] != nil {
 		id = ai.UUIDv7()
 	}
 	r.active[id] = child
-	r.mu.Unlock()
-	return id
+	return id, true
 }
 
 func (r *SubagentRunner) removeActive(id string, child *AgentSession) {
@@ -269,7 +299,13 @@ func (r *SubagentRunner) run(ctx context.Context, id, task string, onUpdate agen
 			options.OnEvent(id, event)
 		}
 	})
-	id = r.addActive(id, child)
+	var registered bool
+	id, registered = r.addActive(id, child)
+	if !registered {
+		unsubscribe()
+		child.Dispose()
+		return agent.AgentToolResult{}, errors.New(subagentFailureReport("Subagents are disabled by the current settings.", ""))
+	}
 	if onUpdate != nil {
 		onUpdate(agent.AgentToolResult{
 			Content: []ai.ToolResultContent{{Type: "text", Text: "Subagent started."}},

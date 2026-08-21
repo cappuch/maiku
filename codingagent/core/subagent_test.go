@@ -79,6 +79,30 @@ func TestSelectRootToolsRegistersSubagentOnlyOnRoot(t *testing.T) {
 	}
 }
 
+func TestDisabledSubagentRunnerRejectsCapturedTool(t *testing.T) {
+	runner := NewSubagentRunner(SubagentToolOptions{
+		Cwd:      t.TempDir(),
+		Model:    testSubagentModel(),
+		APIKey:   "test-key",
+		StreamFn: completedSubagentStream("Done.", nil),
+	})
+	tool := runner.Tool()
+	runner.SetEnabled(false)
+
+	_, err := tool.Execute(context.Background(), "call-disabled", map[string]any{"task": "Do not run"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "Subagents are disabled") {
+		t.Fatalf("disabled captured tool returned %v", err)
+	}
+	if runner.ActiveCount() != 0 {
+		t.Fatalf("disabled runner started %d children", runner.ActiveCount())
+	}
+
+	runner.SetEnabled(true)
+	if _, err := tool.Execute(context.Background(), "call-enabled", map[string]any{"task": "Run now"}, nil); err != nil {
+		t.Fatalf("re-enabled captured tool was not admitted: %v", err)
+	}
+}
+
 func TestSubagentRunsIndependentChildAndReturnsStructuredReport(t *testing.T) {
 	cwd := t.TempDir()
 	var inspected bool

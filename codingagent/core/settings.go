@@ -54,27 +54,28 @@ type RetrySettings struct {
 // settings.json written by the TypeScript CLI round-trips without loss when
 // only inspected here.
 type Settings struct {
-	DefaultProvider      string            `json:"defaultProvider,omitempty"`
-	DefaultModel         string            `json:"defaultModel,omitempty"`
-	DefaultThinkingLevel string            `json:"defaultThinkingLevel,omitempty"`
+	DefaultProvider      string `json:"defaultProvider,omitempty"`
+	DefaultModel         string `json:"defaultModel,omitempty"`
+	DefaultThinkingLevel string `json:"defaultThinkingLevel,omitempty"`
 	// Reasoning maps a model id to its saved reasoning level (off, low, medium,
 	// high, …). Each model keeps its own preference; models without an entry
 	// fall back to the default level.
-	Reasoning map[string]string `json:"reasoning,omitempty"`
-	Transport string            `json:"transport,omitempty"`
-	Theme                string                 `json:"theme,omitempty"`
-	ShellPath            string                 `json:"shellPath,omitempty"`
-	ShellCommandPrefix   string                 `json:"shellCommandPrefix,omitempty"`
-	SessionDir           string                 `json:"sessionDir,omitempty"`
-	Compaction           *CompactionSettings    `json:"compaction,omitempty"`
-	BranchSummary        *BranchSummarySettings `json:"branchSummary,omitempty"`
-	Retry                *RetrySettings         `json:"retry,omitempty"`
-	Skills               []string               `json:"skills,omitempty"`
-	EnableSkillCommands  *bool                  `json:"enableSkillCommands,omitempty"`
-	EnabledModels        []string               `json:"enabledModels,omitempty"`
-	QuietStartup         *bool                  `json:"quietStartup,omitempty"`
-	HTTPProxy            string                 `json:"httpProxy,omitempty"`
-	HTTPIdleTimeoutMs    *int                   `json:"httpIdleTimeoutMs,omitempty"`
+	Reasoning           map[string]string      `json:"reasoning,omitempty"`
+	Transport           string                 `json:"transport,omitempty"`
+	Theme               string                 `json:"theme,omitempty"`
+	ShellPath           string                 `json:"shellPath,omitempty"`
+	ShellCommandPrefix  string                 `json:"shellCommandPrefix,omitempty"`
+	SessionDir          string                 `json:"sessionDir,omitempty"`
+	Compaction          *CompactionSettings    `json:"compaction,omitempty"`
+	BranchSummary       *BranchSummarySettings `json:"branchSummary,omitempty"`
+	Retry               *RetrySettings         `json:"retry,omitempty"`
+	Skills              []string               `json:"skills,omitempty"`
+	EnableSkillCommands *bool                  `json:"enableSkillCommands,omitempty"`
+	Subagent            *bool                  `json:"subagent,omitempty"`
+	EnabledModels       []string               `json:"enabledModels,omitempty"`
+	QuietStartup        *bool                  `json:"quietStartup,omitempty"`
+	HTTPProxy           string                 `json:"httpProxy,omitempty"`
+	HTTPIdleTimeoutMs   *int                   `json:"httpIdleTimeoutMs,omitempty"`
 }
 
 // SettingsScope identifies which settings file a value or error came from.
@@ -206,6 +207,15 @@ func deepMergeSettingsMaps(base, overrides map[string]any) map[string]any {
 	return merged
 }
 
+// SubagentEnabled reports whether root sessions may delegate work to child
+// agents. It defaults to true for backward compatibility.
+func (s Settings) SubagentEnabled() bool {
+	if s.Subagent != nil {
+		return *s.Subagent
+	}
+	return true
+}
+
 // CompactionEnabled reports whether automatic compaction is on (default true).
 func (s Settings) CompactionEnabled() bool {
 	if s.Compaction != nil && s.Compaction.Enabled != nil {
@@ -313,6 +323,11 @@ func SetDefaultModel(agentDir, provider, model string) error {
 		"defaultProvider": provider,
 		"defaultModel":    model,
 	})
+}
+
+// SetSubagentEnabled persists whether root sessions expose the subagent tool.
+func SetSubagentEnabled(agentDir string, enabled bool) error {
+	return PatchGlobalSettings(agentDir, map[string]any{"subagent": enabled})
 }
 
 // SetModelThinkingLevel records the reasoning level for a single model id in

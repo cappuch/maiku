@@ -9,6 +9,7 @@ import { StreamingText } from "./StreamingText";
 export function Transcript({
   messages,
   scrollRef,
+  onScroll,
   streamText,
   streamThinking,
   thinkingStartedAt,
@@ -17,6 +18,7 @@ export function Transcript({
 }: {
   messages: UIMessage[];
   scrollRef: RefObject<HTMLDivElement | null>;
+  onScroll?: () => void;
   streamText?: string;
   streamThinking?: string;
   thinkingStartedAt?: number | null;
@@ -54,7 +56,11 @@ export function Transcript({
     ));
 
   return (
-    <div ref={scrollRef} className="transcript min-h-0 flex-1 overflow-y-auto px-6 py-7">
+    <div
+      ref={scrollRef}
+      onScroll={onScroll}
+      className="transcript min-h-0 flex-1 overflow-y-auto px-6 py-7"
+    >
       {messages.length === 0 && !showThinking && !showStream && !streaming && (
         <div className="empty-state mx-auto mt-[16vh] max-w-xl text-center">
           <p className="empty-greeting">{greeting || "Hey there"}</p>

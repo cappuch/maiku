@@ -44,6 +44,7 @@ type Props = {
   settingsOpen: boolean;
   error: string | null;
   scrollRef: RefObject<HTMLDivElement | null>;
+  onTranscriptScroll: () => void;
   recentDirs: string[];
   onToggleSidebar: () => void;
   onToggleSettings: () => void;
@@ -352,6 +353,7 @@ export function AppShell(props: Props) {
           <Transcript
             messages={messages}
             scrollRef={scrollRef}
+            onScroll={props.onTranscriptScroll}
             streamText={streamText}
             streamThinking={streamThinking}
             thinkingStartedAt={thinkingStartedAt}

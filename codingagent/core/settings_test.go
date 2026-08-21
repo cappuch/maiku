@@ -28,12 +28,14 @@ func TestLoadSettingsMergesProjectOverGlobal(t *testing.T) {
 		"defaultThinkingLevel": "medium",
 		"reasoning": { "model-a": "high" },
 		"shellPath": "/bin/zsh",
+		"subagent": true,
 		"compaction": { "enabled": true, "reserveTokens": 1000, "keepRecentTokens": 2000 },
 		"retry": { "maxRetries": 5, "provider": { "timeoutMs": 1234 } }
 	}`)
 	writeFile(t, ProjectSettingsPath(cwd), `{
 		"defaultModel": "claude-opus-4-5",
 		"reasoning": { "model-b": "low" },
+		"subagent": false,
 		"compaction": { "reserveTokens": 4096 },
 		"retry": { "provider": { "maxRetries": 9 } }
 	}`)
@@ -52,6 +54,9 @@ func TestLoadSettingsMergesProjectOverGlobal(t *testing.T) {
 	}
 	if settings.ShellPath != "/bin/zsh" {
 		t.Errorf("shellPath = %q, want inherited", settings.ShellPath)
+	}
+	if settings.SubagentEnabled() {
+		t.Error("project subagent setting should override the global setting")
 	}
 
 	// Nested objects merge key-by-key instead of being replaced wholesale.
@@ -131,6 +136,9 @@ func TestLoadSettingsDefaultsWithoutFiles(t *testing.T) {
 	}
 
 	settings := result.Settings
+	if !settings.SubagentEnabled() {
+		t.Error("subagent should default to enabled")
+	}
 	if !settings.CompactionEnabled() {
 		t.Error("compaction should default to enabled")
 	}
@@ -142,6 +150,29 @@ func TestLoadSettingsDefaultsWithoutFiles(t *testing.T) {
 	}
 	if got := settings.TransportOrDefault(); got != DefaultTransport {
 		t.Errorf("transport = %q, want %q", got, DefaultTransport)
+	}
+}
+
+func TestSetSubagentEnabledPersistsAndPreservesUnknownSettings(t *testing.T) {
+	agentDir := t.TempDir()
+	writeFile(t, GlobalSettingsPath(agentDir), `{"theme": "dark", "pluginConfig": {"keep": true}}`)
+
+	if err := SetSubagentEnabled(agentDir, false); err != nil {
+		t.Fatal(err)
+	}
+	result := LoadSettings(t.TempDir(), agentDir)
+	if result.Settings.SubagentEnabled() {
+		t.Error("subagent should be disabled after persisting false")
+	}
+	if result.Settings.Theme != "dark" || result.Raw["pluginConfig"] == nil {
+		t.Errorf("unrelated settings were not preserved: %#v", result.Raw)
+	}
+
+	if err := SetSubagentEnabled(agentDir, true); err != nil {
+		t.Fatal(err)
+	}
+	if !LoadSettings(t.TempDir(), agentDir).Settings.SubagentEnabled() {
+		t.Error("subagent should be enabled after persisting true")
 	}
 }
 

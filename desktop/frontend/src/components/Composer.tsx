@@ -22,7 +22,29 @@ const commands: CommandSuggestion[] = [
     label: "/compact",
     description: "Summarize older conversation history to free context",
   },
+  {
+    kind: "command",
+    value: "/settings subagent true",
+    label: "/settings subagent true",
+    description: "Enable delegation to child agents",
+  },
+  {
+    kind: "command",
+    value: "/settings subagent false",
+    label: "/settings subagent false",
+    description: "Disable delegation to child agents",
+  },
 ];
+
+function normalizeCommand(text: string) {
+  return text.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function knownCommand(text: string): string | null {
+  const normalized = normalizeCommand(text);
+  const match = commands.find((command) => command.value === normalized);
+  return match ? match.value.slice(1) : null;
+}
 
 let attachmentSeq = 0;
 function nextAttachmentId() {
@@ -42,9 +64,9 @@ function atPrefixAt(text: string, cursor: number): { start: number; query: strin
   return { start: match.index, query: match[0].slice(1) };
 }
 
-/** Slash commands are offered only for the first, otherwise-empty token. */
+/** Slash commands are offered while editing a single command line. */
 function commandPrefixAt(text: string, cursor: number): { start: number; query: string } | null {
-  const match = text.slice(0, cursor).match(/^\/([^\s/]*)$/);
+  const match = text.slice(0, cursor).match(/^\/([^/\n]*)$/);
   if (!match) return null;
   return { start: 0, query: match[1].toLowerCase() };
 }
@@ -219,11 +241,15 @@ export function Composer({
   const submit = () => {
     const text = value.trim();
     if ((!text && attachments.length === 0) || streaming || disabled) return;
-    if (text === "/compact") {
+    const command = knownCommand(text);
+    const normalized = normalizeCommand(text);
+    const isSettingsCommand = normalized === "/settings" || normalized.startsWith("/settings ");
+    if (command || isSettingsCommand) {
       setValue("");
+      setAttachments([]);
       setSuggestions([]);
       setSuggestRange(null);
-      onCommand("compact");
+      onCommand(command || normalized.slice(1));
       return;
     }
     const images = attachments.map(({ mimeType, data, name }) => ({ mimeType, data, name }));
@@ -340,7 +366,7 @@ export function Composer({
               onKeyDown={(e) => {
                 // Once a command is complete, Enter runs it rather than merely
                 // re-selecting the still-visible autocomplete row.
-                if (e.key === "Enter" && !e.shiftKey && value.trim() === "/compact") {
+                if (e.key === "Enter" && !e.shiftKey && knownCommand(value)) {
                   e.preventDefault();
                   submit();
                   return;

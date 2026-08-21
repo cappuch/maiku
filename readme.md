@@ -44,3 +44,10 @@ Env: `MAIKU_AGENT_DIR`, `MAIKU_SESSION_DIR`
 ## Subagents
 
 Root Maiku sessions expose a `subagent` tool for delegating self-contained work. Each call runs an independent, ephemeral child with `read`, `bash`, `edit`, and `write`; children cannot delegate again. Independent calls emitted in the same turn run concurrently and return concise Markdown reports to the root orchestrator.
+
+Subagents are enabled by default. Toggle them from the desktop composer; the setting is persisted in `~/.maiku/agent/settings.json` and applied immediately:
+
+```text
+/settings subagent false
+/settings subagent true
+```

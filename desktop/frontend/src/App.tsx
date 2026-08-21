@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 import {
   Abort,
@@ -18,6 +18,7 @@ import {
   RenameSession,
   SetAPIKey,
   SetModel,
+  SetSubagentEnabled,
   SetThinking,
 } from "../wailsjs/go/main/App";
 import type {
@@ -32,6 +33,8 @@ import type {
 } from "./types";
 import { emptyUsage } from "./types";
 import { AppShell } from "./components/AppShell";
+
+const SCROLL_BOTTOM_THRESHOLD = 48;
 
 function normalizeState(raw: any): AppState {
   return {
@@ -89,6 +92,9 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Stream updates should follow the response only while the user is already
+  // at the bottom. Keep this in a ref so every generated chunk does not render.
+  const followTranscriptRef = useRef(true);
   // Bumped on every refresh (and session switch) so a slow in-flight refresh
   // cannot overwrite a newer session after NewSession / OpenSession.
   const refreshGenRef = useRef(0);
@@ -507,13 +513,25 @@ export default function App() {
     return () => offs.forEach((off) => off && off());
   }, [refresh, isFocused]);
 
-  useEffect(() => {
+  const onTranscriptScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+    followTranscriptRef.current = distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD;
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && followTranscriptRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages, streamText, streamThinking]);
 
   const onSend = async (text: string, images: ImageAttachment[] = []) => {
     setError(null);
+    // Sending is an explicit request to start a new turn, so reveal it and
+    // resume following even if the user had been reading farther up.
+    followTranscriptRef.current = true;
     setMessages((prev) => [...prev, { role: "user", text, images }]);
     setStreaming(true);
     if (focusedSessionRef.current) {
@@ -531,6 +549,21 @@ export default function App() {
   };
 
   const onCommand = async (command: string) => {
+    if (command === "settings" || command.startsWith("settings ")) {
+      const match = command.match(/^settings subagent (true|false)$/);
+      if (!match) {
+        setError("Usage: /settings subagent true|false");
+        return;
+      }
+      setError(null);
+      try {
+        await SetSubagentEnabled(match[1] === "true");
+      } catch (e: any) {
+        setError(e?.message || String(e));
+      }
+      return;
+    }
+
     if (command !== "compact") return;
     setError(null);
     setStreaming(true);
@@ -550,6 +583,7 @@ export default function App() {
 
   const switchSession = async (fn: () => Promise<unknown>) => {
     refreshGenRef.current += 1;
+    followTranscriptRef.current = true;
     // Ignore transcript events until refresh pins the new focus.
     focusedSessionRef.current = "";
     setStreamText("");
@@ -588,6 +622,7 @@ export default function App() {
       settingsOpen={settingsOpen}
       error={error}
       scrollRef={scrollRef}
+      onTranscriptScroll={onTranscriptScroll}
       recentDirs={state.recentDirs}
       onToggleSidebar={() => setSidebarOpen((v) => !v)}
       onToggleSettings={() => setSettingsOpen((v) => !v)}
