@@ -24,6 +24,12 @@ const commands: CommandSuggestion[] = [
   },
   {
     kind: "command",
+    value: "/goal ",
+    label: "/goal",
+    description: "Pursue goals via a temporal memory markdown draft",
+  },
+  {
+    kind: "command",
     value: "/settings subagent true",
     label: "/settings subagent true",
     description: "Enable delegation to child agents",
@@ -314,13 +320,24 @@ export function Composer({
     const command = knownCommand(text);
     const normalized = normalizeCommand(text);
     const isSettingsCommand = normalized === "/settings" || normalized.startsWith("/settings ");
-    if (command || isSettingsCommand) {
+    const isGoalCommand = normalized === "/goal" || normalized.startsWith("/goal ");
+    if (command || isSettingsCommand || isGoalCommand) {
       setValue("");
       writeDraft(draftKey, "");
       setAttachments([]);
       setSuggestions([]);
       setSuggestRange(null);
-      onCommand(command || normalized.slice(1));
+      // Preserve original goal text (not lowercased) so objectives keep casing.
+      const goalPayload = isGoalCommand
+        ? text.trim().replace(/^\/goal\s*/i, "").trim()
+        : "";
+      onCommand(
+        isGoalCommand
+          ? goalPayload
+            ? `goal ${goalPayload}`
+            : "goal"
+          : command || normalized.slice(1),
+      );
       return;
     }
 

@@ -30,6 +30,10 @@ export function GetState() {
   return window['go']['main']['App']['GetState']();
 }
 
+export function Goal(arg1) {
+  return window['go']['main']['App']['Goal'](arg1);
+}
+
 export function ListAPIKeys() {
   return window['go']['main']['App']['ListAPIKeys']();
 }

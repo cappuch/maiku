@@ -455,7 +455,8 @@ export function AppShell(props: Props) {
         <Stat label="out" value={formatTokens(usage.output)} />
         <Stat label="cache" value={formatCacheRate(usage.cacheRate)} accent />
         <Stat label="total" value={formatTokens(usage.totalTokens)} />
-        <Stat label="cost" value={formatCost(usage.cost)} accent />
+        <Stat label="cost" value={formatCost(usage.cost)} />
+        <Stat label="total cost" value={formatCost(usage.totalCost ?? usage.cost)} accent />
         <Stat label="tok/s" value={formatRate(tokensPerSec)} />
         <span className="ml-auto truncate">{state.cwd || "open a folder to begin"}</span>
         {streaming && (

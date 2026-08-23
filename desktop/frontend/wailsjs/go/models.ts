@@ -120,6 +120,7 @@ export namespace main {
 	    cacheWrite: number;
 	    totalTokens: number;
 	    cost: number;
+	    totalCost: number;
 	    cacheRate: number;
 	
 	    static createFrom(source: any = {}) {
@@ -134,6 +135,7 @@ export namespace main {
 	        this.cacheWrite = source["cacheWrite"];
 	        this.totalTokens = source["totalTokens"];
 	        this.cost = source["cost"];
+	        this.totalCost = source["totalCost"];
 	        this.cacheRate = source["cacheRate"];
 	    }
 	}

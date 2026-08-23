@@ -7,6 +7,7 @@ import {
   Compact,
   FinishOpenAICodexLogin,
   GetState,
+  Goal,
   ListAPIKeys,
   ListModels,
   ListSessions,
@@ -48,7 +49,7 @@ function normalizeState(raw: Partial<AppState> | null | undefined): AppState {
     streaming: !!raw?.streaming,
     sessionId: raw?.sessionId ?? "",
     sessionPath: raw?.sessionPath ?? "",
-    usage: raw?.usage ?? emptyUsage(),
+    usage: normalizeUsage(raw?.usage),
     hasApiKey: !!raw?.hasApiKey,
     messages: Array.isArray(raw?.messages) ? raw.messages : [],
     recentDirs: Array.isArray(raw?.recentDirs) ? raw.recentDirs : [],
@@ -57,6 +58,24 @@ function normalizeState(raw: Partial<AppState> | null | undefined): AppState {
       : [],
     streamText: typeof raw?.streamText === "string" ? raw.streamText : "",
     streamThinking: typeof raw?.streamThinking === "string" ? raw.streamThinking : "",
+  };
+}
+
+function normalizeUsage(raw: Partial<UsageTotals> | null | undefined): UsageTotals {
+  const base = emptyUsage();
+  if (!raw) return base;
+  const cost = typeof raw.cost === "number" ? raw.cost : 0;
+  const totalCost =
+    typeof raw.totalCost === "number" ? raw.totalCost : cost;
+  return {
+    input: typeof raw.input === "number" ? raw.input : 0,
+    output: typeof raw.output === "number" ? raw.output : 0,
+    cacheRead: typeof raw.cacheRead === "number" ? raw.cacheRead : 0,
+    cacheWrite: typeof raw.cacheWrite === "number" ? raw.cacheWrite : 0,
+    totalTokens: typeof raw.totalTokens === "number" ? raw.totalTokens : 0,
+    cost,
+    totalCost,
+    cacheRate: typeof raw.cacheRate === "number" ? raw.cacheRate : 0,
   };
 }
 
@@ -169,6 +188,34 @@ export default function App() {
       EventsOn("maiku:compacted", (data) => {
         if (!isFocused(data?.sessionId)) return;
         if (data?.usage) setUsage(data.usage);
+        const removed = typeof data?.messagesRemoved === "number" ? data.messagesRemoved : 0;
+        const before = typeof data?.tokensBefore === "number" ? data.tokensBefore : 0;
+        const after = typeof data?.tokensAfter === "number" ? data.tokensAfter : 0;
+        const sessionId = data?.sessionId as string;
+        void (async () => {
+          try {
+            const s = await GetState();
+            if (!isFocused(sessionId)) return;
+            const next = normalizeState(s);
+            setMessages([
+              ...next.messages,
+              {
+                id: `notice-compact-${Date.now()}`,
+                role: "notice",
+                text: formatCompactNotice(removed, before, after),
+              },
+            ]);
+          } catch {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `notice-compact-${Date.now()}`,
+                role: "notice",
+                text: formatCompactNotice(removed, before, after),
+              },
+            ]);
+          }
+        })();
       }),
       EventsOn("maiku:message_update", (data) => {
         const sid = data?.sessionId as string | undefined;
@@ -634,11 +681,43 @@ export default function App() {
         setError("Usage: /settings subagent true|false");
         return;
       }
+      const enabled = match[1] === "true";
       setError(null);
       try {
-        await SetSubagentEnabled(match[1] === "true");
+        await SetSubagentEnabled(enabled);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `notice-subagent-${Date.now()}`,
+            role: "notice",
+            text: enabled ? "Subagents enabled" : "Subagents disabled",
+          },
+        ]);
       } catch (error: unknown) {
         setError(errorMessage(error));
+      }
+      return;
+    }
+
+    if (command === "goal" || command.startsWith("goal ")) {
+      const raw = command === "goal" ? "" : command.slice("goal ".length);
+      if (!raw.trim()) {
+        setError("Usage: /goal <goal>[, <goal>...]");
+        return;
+      }
+      setError(null);
+      setStreaming(true);
+      if (focusedSessionRef.current) {
+        setStreamingSessionIds((prev) => markStreaming(prev, focusedSessionRef.current));
+      }
+      try {
+        await Goal(raw);
+      } catch (error: unknown) {
+        setError(errorMessage(error));
+        setStreaming(false);
+        if (focusedSessionRef.current) {
+          setStreamingSessionIds((prev) => clearStreaming(prev, focusedSessionRef.current));
+        }
       }
       return;
     }
@@ -862,6 +941,23 @@ function subagentActionInput(toolName: unknown, rawArgs: unknown): string {
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function formatTokenCount(n: number): string {
+  if (n >= 10000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+  return String(n);
+}
+
+function formatCompactNotice(removed: number, before: number, after: number): string {
+  const parts = ["Compacted"];
+  if (removed > 0) {
+    parts.push(`${removed} message${removed === 1 ? "" : "s"}`);
+  }
+  if (before > 0 && after >= 0 && after < before) {
+    parts.push(`${formatTokenCount(before)} → ${formatTokenCount(after)} tokens`);
+  }
+  return parts.join(" · ");
 }
 
 function truncate(s: string, n: number) {

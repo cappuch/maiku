@@ -4,7 +4,10 @@ export type UsageTotals = {
   cacheRead: number;
   cacheWrite: number;
   totalTokens: number;
+  /** Root-agent spend only (this session's own LLM turns). */
   cost: number;
+  /** Root spend plus nested subagent spend. */
+  totalCost: number;
   cacheRate: number;
 };
 
@@ -114,5 +117,6 @@ export const emptyUsage = (): UsageTotals => ({
   cacheWrite: 0,
   totalTokens: 0,
   cost: 0,
+  totalCost: 0,
   cacheRate: 0,
 });

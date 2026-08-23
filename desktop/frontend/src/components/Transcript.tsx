@@ -219,7 +219,15 @@ export function Transcript({
 
 const MessageRow = memo(function MessageRow({ message }: { message: UIMessage }) {
   let content: ReactNode;
-  if (message.role === "user") {
+  if (message.role === "notice") {
+    content = (
+      <div className="chat-notice" role="status">
+        <span className="chat-notice-rule" aria-hidden />
+        <span className="chat-notice-text">{message.text || "Done"}</span>
+        <span className="chat-notice-rule" aria-hidden />
+      </div>
+    );
+  } else if (message.role === "user") {
     content = (
       <div className="flex justify-end">
         <div className="user-message max-w-[85%] space-y-2 px-4 py-2.5 text-sm leading-relaxed">
@@ -258,7 +266,17 @@ const MessageRow = memo(function MessageRow({ message }: { message: UIMessage })
     );
   }
 
-  return <div className="transcript-row flex flex-col gap-5">{content}</div>;
+  return (
+    <div
+      className={
+        message.role === "notice"
+          ? "transcript-row transcript-row-notice"
+          : "transcript-row flex flex-col gap-5"
+      }
+    >
+      {content}
+    </div>
+  );
 });
 
 function ResponseActions({ text }: { text: string }) {

@@ -17,6 +17,8 @@ export function FinishOpenAICodexLogin():Promise<void>;
 
 export function GetState():Promise<main.AppState>;
 
+export function Goal(arg1:string):Promise<void>;
+
 export function ListAPIKeys():Promise<Array<main.APIKeyStatus>>;
 
 export function ListModels():Promise<Array<main.ModelInfo>>;

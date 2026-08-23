@@ -73,8 +73,11 @@ type UsageTotals struct {
 	CacheRead   int     `json:"cacheRead"`
 	CacheWrite  int     `json:"cacheWrite"`
 	TotalTokens int     `json:"totalTokens"`
-	Cost        float64 `json:"cost"`
-	CacheRate   float64 `json:"cacheRate"`
+	// Cost is root-agent spend only (this session's own LLM turns).
+	Cost float64 `json:"cost"`
+	// TotalCost is Cost plus nested subagent spend attached to tool results.
+	TotalCost float64 `json:"totalCost"`
+	CacheRate float64 `json:"cacheRate"`
 }
 
 // AppState is returned by GetState.
@@ -581,7 +584,7 @@ func (a *App) onAgentEvent(sessionID string, event agent.AgentEvent) {
 		a.mu.Lock()
 		live := a.live[sessionID]
 		if live != nil && hasBillableUsage(event.Message) {
-			live.addUsage(*event.Message.Usage)
+			live.addUsageFor(*event.Message.Usage, event.Message.Role == "assistant")
 		}
 		var usage UsageTotals
 		if live != nil {
@@ -926,12 +929,19 @@ func extractUserImages(content any) []ImageAttachment {
 }
 
 func (live *liveSession) addUsage(u ai.Usage) {
+	live.addUsageFor(u, true)
+}
+
+func (live *liveSession) addUsageFor(u ai.Usage, root bool) {
 	live.usage.Input += u.Input
 	live.usage.Output += u.Output
 	live.usage.CacheRead += u.CacheRead
 	live.usage.CacheWrite += u.CacheWrite
 	live.usage.TotalTokens += u.TotalTokens
-	live.usage.Cost += u.Cost.Total
+	live.usage.TotalCost += u.Cost.Total
+	if root {
+		live.usage.Cost += u.Cost.Total
+	}
 	den := live.usage.Input + live.usage.CacheRead
 	if den > 0 {
 		live.usage.CacheRate = float64(live.usage.CacheRead) / float64(den)
@@ -942,7 +952,7 @@ func (live *liveSession) recomputeUsage(messages []ai.Message) {
 	live.usage = UsageTotals{}
 	for _, m := range messages {
 		if hasBillableUsage(m) {
-			live.addUsage(*m.Usage)
+			live.addUsageFor(*m.Usage, m.Role == "assistant")
 		}
 	}
 }
@@ -1439,6 +1449,42 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 	if displayText == "" && len(images) == 0 {
 		return fmt.Errorf("empty prompt")
 	}
+	return a.promptWithDisplay(displayText, "", images)
+}
+
+// Goal arms a goal-driven run: writes a temporal memory markdown file under
+// .maiku/goals/, then prompts the agent to draft a plan into it and work from
+// that state until every objective is done.
+func (a *App) Goal(raw string) error {
+	goals := core.ParseGoals(raw)
+	if len(goals) == 0 {
+		return fmt.Errorf("usage: /goal <goal>[, <goal>...]")
+	}
+	if err := a.ensureSession(); err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	live := a.activeLocked()
+	cwd := a.cwd
+	if live != nil && live.mgr != nil && live.mgr.Header().Cwd != "" {
+		cwd = live.mgr.Header().Cwd
+	}
+	a.mu.Unlock()
+
+	memoryPath, err := core.CreateGoalMemory(cwd, goals)
+	if err != nil {
+		return err
+	}
+	display := "/goal " + strings.Join(goals, ", ")
+	return a.promptWithDisplay(display, core.BuildGoalPrompt(memoryPath, goals), nil)
+}
+
+// promptWithDisplay streams a model prompt while showing display in the UI.
+// When modelText is empty, display is expanded for @mentions and used as the
+// model prompt (normal chat). When modelText is set, it is sent to the model
+// unchanged and display is shown as the user bubble.
+func (a *App) promptWithDisplay(display, modelText string, images []ImageAttachment) error {
 	if err := a.ensureSession(); err != nil {
 		return err
 	}
@@ -1470,21 +1516,8 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 	session := live.session
 	a.mu.Unlock()
 
-	expanded, err := core.ExpandAtMentions(cwd, displayText)
-	if err != nil {
-		a.mu.Lock()
-		if cur := a.live[sessionID]; cur != nil && cur.promptGen == promptGen {
-			cur.cancel = nil
-		}
-		a.mu.Unlock()
-		cancel()
-		return err
-	}
-	promptText := expanded.Text
-	if strings.TrimSpace(promptText) == "" {
-		promptText = "(image)"
-	}
-
+	promptText := modelText
+	uiImages := images
 	var aiImages []ai.ImageContent
 	for _, img := range images {
 		if img.Data == "" || img.MimeType == "" {
@@ -1496,18 +1529,32 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 			MimeType: img.MimeType,
 		})
 	}
-	aiImages = append(aiImages, expanded.Images...)
 
-	uiImages := images
-	if len(uiImages) == 0 && len(expanded.Images) > 0 {
-		uiImages = make([]ImageAttachment, 0, len(expanded.Images))
-		for _, img := range expanded.Images {
-			uiImages = append(uiImages, ImageAttachment{MimeType: img.MimeType, Data: img.Data})
+	if modelText == "" {
+		expanded, err := core.ExpandAtMentions(cwd, display)
+		if err != nil {
+			a.mu.Lock()
+			if cur := a.live[sessionID]; cur != nil && cur.promptGen == promptGen {
+				cur.cancel = nil
+			}
+			a.mu.Unlock()
+			cancel()
+			return err
+		}
+		promptText = expanded.Text
+		if strings.TrimSpace(promptText) == "" {
+			promptText = "(image)"
+		}
+		aiImages = append(aiImages, expanded.Images...)
+		if len(uiImages) == 0 && len(expanded.Images) > 0 {
+			uiImages = make([]ImageAttachment, 0, len(expanded.Images))
+			for _, img := range expanded.Images {
+				uiImages = append(uiImages, ImageAttachment{MimeType: img.MimeType, Data: img.Data})
+			}
 		}
 	}
 
-	display := displayText
-	if display == "" {
+	if strings.TrimSpace(display) == "" {
 		display = "(image)"
 	}
 	a.emit("maiku:message_end", map[string]any{
