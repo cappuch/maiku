@@ -23,6 +23,19 @@ func TestBashToolPreservesCmdQuotes(t *testing.T) {
 	}
 }
 
+func TestBashToolPrefixSharesCmdEnvironment(t *testing.T) {
+	tool := CreateBashToolWithOptions(t.TempDir(), BashOptions{
+		CommandPrefix: `set "MAIKU_PREFIX_TEST=prefix-value"`,
+	})
+	output, err := executeBashTool(t, tool, `set MAIKU_PREFIX_TEST`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(output) != "MAIKU_PREFIX_TEST=prefix-value" {
+		t.Fatalf("output = %q, want configured environment", output)
+	}
+}
+
 func TestBashToolTimeoutReturnsPromptly(t *testing.T) {
 	started := time.Now()
 	_, err := CreateBashTool(t.TempDir()).Execute(

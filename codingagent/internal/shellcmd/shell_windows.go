@@ -16,6 +16,20 @@ func platformCommand(config Config, commandText string) *exec.Cmd {
 	if base == "cmd" {
 		// cmd.exe does not use CommandLineToArgvW quoting. Pass the command line
 		// verbatim using the same /D /S /C "command" form as Node's shell mode.
+		// /C only executes the first physical line, so join multiline commands
+		// with cmd's command separator. This also lets shellCommandPrefix and the
+		// requested command run in the same shell process.
+		commandText = strings.ReplaceAll(commandText, "\r\n", "\n")
+		commandText = strings.ReplaceAll(commandText, "\r", "\n")
+		lines := strings.Split(commandText, "\n")
+		commands := lines[:0]
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				commands = append(commands, line)
+			}
+		}
+		commandText = strings.Join(commands, "&")
+
 		cmd := exec.Command(config.Executable)
 		cmd.SysProcAttr = &syscall.SysProcAttr{
 			HideWindow: true,

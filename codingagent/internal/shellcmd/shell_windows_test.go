@@ -31,6 +31,15 @@ func TestCmdCommandUsesVerbatimWindowsQuoting(t *testing.T) {
 	}
 }
 
+func TestCmdCommandJoinsMultilineCommands(t *testing.T) {
+	config := Resolve(`C:\Windows\System32\cmd.exe`)
+	cmd := config.Command("echo prefix\r\necho command")
+	want := `"C:\Windows\System32\cmd.exe" /D /S /C "echo prefix&echo command"`
+	if cmd.SysProcAttr == nil || cmd.SysProcAttr.CmdLine != want {
+		t.Fatalf("command line = %q, want %q", cmd.SysProcAttr.CmdLine, want)
+	}
+}
+
 func TestResolveRecognizesPowerShell(t *testing.T) {
 	config := Resolve(`C:\Program Files\PowerShell\7\pwsh.exe`)
 	if config.Name != "PowerShell" {
