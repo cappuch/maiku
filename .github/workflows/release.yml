@@ -62,7 +62,8 @@ jobs:
 
       - name: Use upstream Wails module
         working-directory: desktop
-        run: go mod edit -dropreplace=github.com/wailsapp/wails/v2
+        # Keep the complete edit flag as one argument under PowerShell.
+        run: go mod edit '-dropreplace=github.com/wailsapp/wails/v2'
 
       - name: Tidy desktop module
         working-directory: desktop
