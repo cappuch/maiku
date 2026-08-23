@@ -68,17 +68,18 @@ jobs:
         working-directory: desktop
         run: go mod tidy
 
-      - name: Test desktop backend
-        working-directory: desktop
-        env:
-          CGO_ENABLED: "1"
-        run: go test ${{ matrix.test_args }} ./...
-
+      # main.go embeds frontend/dist, which Wails generates during the build.
       - name: Build desktop UI
         working-directory: desktop
         env:
           CGO_ENABLED: "1"
         run: wails build ${{ matrix.build_args }}
+
+      - name: Test desktop backend
+        working-directory: desktop
+        env:
+          CGO_ENABLED: "1"
+        run: go test ${{ matrix.test_args }} ./...
 
       - name: Package macOS artifact
         if: matrix.asset_kind == 'app'
