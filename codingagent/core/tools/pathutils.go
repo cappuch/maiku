@@ -53,9 +53,11 @@ func normalizePath(input string) string {
 		}
 		return normalized
 	}
-	if strings.HasPrefix(normalized, "~/") {
+	if len(normalized) > 1 && normalized[0] == '~' && (normalized[1] == '/' || normalized[1] == '\\') {
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, normalized[2:])
+			remainder := strings.TrimLeft(normalized[1:], `/\\`)
+			remainder = filepath.FromSlash(strings.ReplaceAll(remainder, `\`, "/"))
+			return filepath.Join(home, remainder)
 		}
 	}
 

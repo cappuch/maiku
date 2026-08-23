@@ -469,6 +469,8 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 			MaxRetries:  settings.Settings.RetryMaxRetries(),
 			BaseDelayMs: settings.Settings.RetryBaseDelayMs(),
 		},
+		ShellPath:          settings.Settings.ShellPath,
+		ShellCommandPrefix: settings.Settings.ShellCommandPrefix,
 	})
 	tools, systemPrompt := rootAgentConfig(
 		cwd,
@@ -519,7 +521,21 @@ func rootAgentConfig(cwd, agentDir string, subagents *core.SubagentRunner, subag
 	if !subagentEnabled {
 		exclude = []string{core.SubagentToolName}
 	}
-	tools := core.SelectRootTools(cwd, nil, exclude, false, subagents)
+	settings := core.LoadSettings(cwd, agentDir).Settings
+	if subagents != nil {
+		subagents.SetShellSettings(settings.ShellPath, settings.ShellCommandPrefix)
+	}
+	tools := core.SelectRootToolsWithOptions(
+		cwd,
+		nil,
+		exclude,
+		false,
+		subagents,
+		core.ToolOptions{
+			ShellPath:          settings.ShellPath,
+			ShellCommandPrefix: settings.ShellCommandPrefix,
+		},
+	)
 	toolNames := make([]string, 0, len(tools))
 	for _, tool := range tools {
 		toolNames = append(toolNames, tool.Name)

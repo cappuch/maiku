@@ -16,6 +16,7 @@ import (
 	"github.com/mikus/maiku/ai/auth"
 	openaicodexoauth "github.com/mikus/maiku/ai/auth/openaicodex"
 	"github.com/mikus/maiku/codingagent"
+	"github.com/mikus/maiku/codingagent/internal/shellcmd"
 )
 
 // Credential types stored in auth.json.
@@ -322,13 +323,14 @@ func resolveCommandConfigValue(command string) string {
 		return cached
 	}
 
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-	output, err := exec.Command(shell, "-c", command).Output()
+	shell := shellcmd.Resolve("")
+	cmd := shell.Command(command)
+	// Do not let a background descendant that inherited stdout hold auth
+	// resolution (and its process-wide mutex) open forever after the shell exits.
+	cmd.WaitDelay = time.Second
+	output, err := cmd.Output()
 	result := ""
-	if err == nil {
+	if err == nil || errors.Is(err, exec.ErrWaitDelay) {
 		result = strings.TrimSpace(string(output))
 	}
 	configCommandCache[command] = result

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -38,6 +41,43 @@ func TestRootAgentConfigHonorsSubagentSetting(t *testing.T) {
 	if strings.Contains(prompt, "- subagent:") || strings.Contains(prompt, "Use subagents") {
 		t.Fatal("disabled root prompt still includes subagent guidance")
 	}
+}
+
+func TestRootAgentConfigAppliesShellSettings(t *testing.T) {
+	cwd := t.TempDir()
+	agentDir := t.TempDir()
+	settingsPath := core.GlobalSettingsPath(agentDir)
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(`{"shellCommandPrefix":"echo root-prefix"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	configuredTools, _ := rootAgentConfig(cwd, agentDir, nil, false)
+	for i := range configuredTools {
+		if configuredTools[i].Name != "bash" {
+			continue
+		}
+		result, err := configuredTools[i].Execute(
+			context.Background(),
+			"test",
+			map[string]any{"command": "echo root-command"},
+			nil,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Content) != 1 {
+			t.Fatalf("content length = %d, want 1", len(result.Content))
+		}
+		output := strings.ReplaceAll(strings.TrimSpace(result.Content[0].Text), "\r\n", "\n")
+		if output != "root-prefix\nroot-command" {
+			t.Fatalf("output = %q", result.Content[0].Text)
+		}
+		return
+	}
+	t.Fatal("root toolset is missing bash")
 }
 
 func TestUIStreamDeltasAvoidCumulativePayloads(t *testing.T) {

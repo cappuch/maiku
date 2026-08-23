@@ -15,18 +15,20 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            platform: darwin/universal
+            build_args: -clean -platform darwin/universal
+            test_args: ""
             asset_name: maiku-desktop-macos
             asset_kind: app
           - os: windows-latest
-            platform: windows/amd64
+            build_args: -clean -platform windows/amd64
+            test_args: ""
             asset_name: maiku-desktop-windows-amd64
             asset_kind: exe
           - os: ubuntu-latest
-            platform: linux/amd64
+            build_args: -clean -platform linux/amd64 -tags webkit2_41
+            test_args: -tags webkit2_41
             asset_name: maiku-desktop-linux-amd64
             asset_kind: bin
-            tags: webkit2_41
 
     runs-on: ${{ matrix.os }}
 
@@ -55,56 +57,49 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
 
+      - name: Test core
+        run: go test ./...
+
       - name: Use upstream Wails module
         working-directory: desktop
-        shell: bash
-        run: |
-          # Local macOS title-bar fork is gitignored; release builds use upstream.
-          go mod edit -dropreplace=github.com/wailsapp/wails/v2
-          go mod tidy
+        run: go mod edit -dropreplace=github.com/wailsapp/wails/v2
+
+      - name: Tidy desktop module
+        working-directory: desktop
+        run: go mod tidy
+
+      - name: Test desktop backend
+        working-directory: desktop
+        env:
+          CGO_ENABLED: "1"
+        run: go test ${{ matrix.test_args }} ./...
 
       - name: Build desktop UI
         working-directory: desktop
-        shell: bash
         env:
           CGO_ENABLED: "1"
-        run: |
-          set -euo pipefail
-          args=(-clean -platform "${{ matrix.platform }}")
-          if [[ -n "${{ matrix.tags || '' }}" ]]; then
-            args+=(-tags "${{ matrix.tags }}")
-          fi
-          wails build "${args[@]}"
-          ls -lah build/bin
+        run: wails build ${{ matrix.build_args }}
 
-      - name: Package artifact
-        shell: bash
+      - name: Package macOS artifact
+        if: matrix.asset_kind == 'app'
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent desktop/build/bin/maiku.app "dist/${{ matrix.asset_name }}.zip"
+
+      - name: Package Windows artifact
+        if: matrix.asset_kind == 'exe'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item desktop/build/bin/maiku-desktop.exe "dist/${{ matrix.asset_name }}.exe"
+
+      - name: Package Linux artifact
+        if: matrix.asset_kind == 'bin'
         run: |
           set -euo pipefail
-          mkdir -p dist
-          case "${{ matrix.asset_kind }}" in
-            app)
-              app_path="$(find desktop/build/bin -maxdepth 1 -name '*.app' | head -1)"
-              test -n "$app_path"
-              ditto -c -k --sequesterRsrc --keepParent "$app_path" "dist/${{ matrix.asset_name }}.zip"
-              ;;
-            exe)
-              exe_path="$(find desktop/build/bin -maxdepth 1 -name '*.exe' | head -1)"
-              test -n "$exe_path"
-              cp "$exe_path" "dist/${{ matrix.asset_name }}.exe"
-              ;;
-            bin)
-              bin_path="$(find desktop/build/bin -maxdepth 1 -type f ! -name '*.yaml' ! -name '*.json' ! -name '*.exe' | head -1)"
-              test -n "$bin_path"
-              cp "$bin_path" "dist/${{ matrix.asset_name }}"
-              chmod +x "dist/${{ matrix.asset_name }}"
-              ;;
-            *)
-              echo "unknown asset_kind: ${{ matrix.asset_kind }}" >&2
-              exit 1
-              ;;
-          esac
-          ls -lah dist
+          mkdir -p dist package
+          install -m 0755 desktop/build/bin/maiku-desktop "package/${{ matrix.asset_name }}"
+          tar -C package -czf "dist/${{ matrix.asset_name }}.tar.gz" "${{ matrix.asset_name }}"
 
       - uses: actions/upload-artifact@v4
         with:

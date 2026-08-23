@@ -18,6 +18,11 @@ const (
 	ToolCurl      ToolName = "curl"
 )
 
+// BuiltinToolOptions configures built-in tools that need runtime settings.
+type BuiltinToolOptions struct {
+	Bash BashOptions
+}
+
 // DefaultToolNames are the tools included in coding-agent's default toolset.
 var DefaultToolNames = []string{
 	string(ToolRead),
@@ -29,12 +34,12 @@ var DefaultToolNames = []string{
 	string(ToolCurl),
 }
 
-func createBuiltinTool(name string, cwd string) *agent.AgentTool {
+func createBuiltinTool(name string, cwd string, options BuiltinToolOptions) *agent.AgentTool {
 	switch ToolName(name) {
 	case ToolRead:
 		return CreateReadTool(cwd)
 	case ToolBash:
-		return CreateBashTool(cwd)
+		return CreateBashToolWithOptions(cwd, options.Bash)
 	case ToolEdit:
 		return CreateEditTool(cwd)
 	case ToolWrite:
@@ -65,14 +70,20 @@ func createBuiltinTool(name string, cwd string) *agent.AgentTool {
 // createAllTools/createReadOnlyTools-style selection. Unknown names are
 // ignored.
 func CreateBuiltinTools(cwd string, names []string) []*agent.AgentTool {
+	return CreateBuiltinToolsWithOptions(cwd, names, BuiltinToolOptions{})
+}
+
+// CreateBuiltinToolsWithOptions is CreateBuiltinTools with per-tool runtime
+// configuration, including the platform shell override and command prefix.
+func CreateBuiltinToolsWithOptions(cwd string, names []string, options BuiltinToolOptions) []*agent.AgentTool {
 	if len(names) == 0 {
 		names = DefaultToolNames
 	}
-	tools := make([]*agent.AgentTool, 0, len(names))
+	selected := make([]*agent.AgentTool, 0, len(names))
 	for _, name := range names {
-		if t := createBuiltinTool(name, cwd); t != nil {
-			tools = append(tools, t)
+		if tool := createBuiltinTool(name, cwd, options); tool != nil {
+			selected = append(selected, tool)
 		}
 	}
-	return tools
+	return selected
 }

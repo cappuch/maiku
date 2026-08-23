@@ -34,9 +34,11 @@ func ExpandTildePath(path string) string {
 	if path == "" {
 		return path
 	}
-	if path == "~" || strings.HasPrefix(path, "~/") {
+	if path == "~" || (len(path) > 1 && path[0] == '~' && (path[1] == '/' || path[1] == '\\')) {
 		if home, err := os.UserHomeDir(); err == nil {
-			path = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(path, "~"), "/"))
+			remainder := strings.TrimLeft(path[1:], `/\\`)
+			remainder = filepath.FromSlash(strings.ReplaceAll(remainder, `\`, "/"))
+			path = filepath.Join(home, remainder)
 		}
 	}
 	if abs, err := filepath.Abs(path); err == nil {

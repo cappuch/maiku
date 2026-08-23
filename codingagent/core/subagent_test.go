@@ -13,6 +13,48 @@ import (
 	"github.com/mikus/maiku/ai"
 )
 
+func TestSubagentRunnerRefreshesShellSettings(t *testing.T) {
+	runner := NewSubagentRunner(SubagentToolOptions{
+		Cwd:                t.TempDir(),
+		ShellCommandPrefix: "old-prefix",
+	})
+	runner.SetShellSettings("custom-shell", "new-prefix")
+	options, _, _ := runner.runtimeSnapshot()
+	if options.ShellPath != "custom-shell" || options.ShellCommandPrefix != "new-prefix" {
+		t.Fatalf("shell settings = (%q, %q)", options.ShellPath, options.ShellCommandPrefix)
+	}
+}
+
+func TestChildToolsetInheritsShellCommandPrefix(t *testing.T) {
+	childTools := childToolset(SubagentToolOptions{
+		Cwd:                t.TempDir(),
+		ShellCommandPrefix: "echo child-prefix",
+	})
+	for i := range childTools {
+		if childTools[i].Name != "bash" {
+			continue
+		}
+		result, err := childTools[i].Execute(
+			context.Background(),
+			"test",
+			map[string]any{"command": "echo child-command"},
+			nil,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Content) != 1 {
+			t.Fatalf("content length = %d, want 1", len(result.Content))
+		}
+		output := strings.ReplaceAll(strings.TrimSpace(result.Content[0].Text), "\r\n", "\n")
+		if output != "child-prefix\nchild-command" {
+			t.Fatalf("output = %q", result.Content[0].Text)
+		}
+		return
+	}
+	t.Fatal("child toolset is missing bash")
+}
+
 func testSubagentModel() ai.Model {
 	return ai.Model{
 		ID: "test-model", Name: "test-model", API: "test-api", Provider: "test-provider",

@@ -56,6 +56,10 @@ type SubagentToolOptions struct {
 	APIKey        string
 	Retry         ai.RetryPolicy
 
+	// ShellPath and ShellCommandPrefix are inherited by the child's shell tool.
+	ShellPath          string
+	ShellCommandPrefix string
+
 	// StreamFn defaults to ai.StreamSimple. It is primarily exposed so hosts
 	// with a custom model runtime can give children the same runtime.
 	StreamFn agent.StreamFn
@@ -171,6 +175,15 @@ func (r *SubagentRunner) SetModel(model ai.Model) {
 func (r *SubagentRunner) SetThinkingLevel(level agent.ThinkingLevel) {
 	r.mu.Lock()
 	r.thinking = level
+	r.mu.Unlock()
+}
+
+// SetShellSettings changes the shell used by subsequently spawned children.
+// Existing children retain the tools with which they started.
+func (r *SubagentRunner) SetShellSettings(shellPath, commandPrefix string) {
+	r.mu.Lock()
+	r.options.ShellPath = shellPath
+	r.options.ShellCommandPrefix = commandPrefix
 	r.mu.Unlock()
 }
 
@@ -365,7 +378,16 @@ func childToolset(options SubagentToolOptions) []agent.AgentTool {
 	if options.ChildTools == nil {
 		// Keep this explicit rather than calling SelectTools with defaults: the
 		// root-only subagent extension can never leak into this child registry.
-		selected = SelectTools(options.Cwd, []string{"read", "bash", "edit", "write"}, nil, false)
+		selected = SelectToolsWithOptions(
+			options.Cwd,
+			[]string{"read", "bash", "edit", "write"},
+			nil,
+			false,
+			ToolOptions{
+				ShellPath:          options.ShellPath,
+				ShellCommandPrefix: options.ShellCommandPrefix,
+			},
+		)
 	} else {
 		selected = append([]agent.AgentTool(nil), options.ChildTools...)
 	}

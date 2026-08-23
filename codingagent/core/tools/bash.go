@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -16,17 +17,19 @@ import (
 
 	"github.com/mikus/maiku/agent"
 	"github.com/mikus/maiku/ai"
+	"github.com/mikus/maiku/codingagent/internal/shellcmd"
 )
 
 const (
-	maxTimeoutMs      = 2_147_483_647
-	maxTimeoutSeconds = maxTimeoutMs / 1000
+	maxTimeoutMs           = 2_147_483_647
+	maxTimeoutSeconds      = maxTimeoutMs / 1000
+	outputDrainGracePeriod = 250 * time.Millisecond
 )
 
 var bashSchema = []byte(`{
 	"type": "object",
 	"properties": {
-		"command": {"type": "string", "description": "Bash command to execute"},
+		"command": {"type": "string", "description": "Shell command to execute"},
 		"timeout": {"type": "number", "description": "Timeout in seconds (optional, no default timeout)"}
 	},
 	"required": ["command"]
@@ -36,6 +39,14 @@ var bashSchema = []byte(`{
 type BashToolDetails struct {
 	Truncation     *TruncationResult
 	FullOutputPath string
+}
+
+// BashOptions configures command execution for the bash-compatible tool name.
+// On Windows the default is the native command processor; ShellPath can select
+// PowerShell, Git Bash, or another shell explicitly.
+type BashOptions struct {
+	ShellPath     string
+	CommandPrefix string
 }
 
 func resolveTimeoutMs(timeoutSeconds *float64) (*time.Duration, error) {
@@ -71,6 +82,18 @@ func (b *safeOutputBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+// finishOutputPipe waits briefly for buffered output, then closes the reader.
+// A background descendant can inherit stdout after its shell exits; bounding
+// this drain prevents that inherited handle from hanging command completion.
+func finishOutputPipe(reader *os.File, done <-chan struct{}) {
+	select {
+	case <-done:
+	case <-time.After(outputDrainGracePeriod):
+		_ = reader.Close()
+		<-done
+	}
 }
 
 func writeFullOutputTempFile(content string) (string, error) {
@@ -140,21 +163,31 @@ func appendStatus(text, status string) string {
 //   - Full output is buffered in memory during execution and only written
 //     to a temp file after the command completes (if truncated), instead of
 //     streaming writes to disk as output arrives.
-//   - Process tree killing uses a POSIX process group (setpgid + kill on the
-//     negative pgid); Windows is not supported.
+//   - Process tree killing uses a POSIX process group on Unix and taskkill on
+//     Windows.
 func CreateBashTool(cwd string) *agent.AgentTool {
+	return CreateBashToolWithOptions(cwd, BashOptions{})
+}
+
+// CreateBashToolWithOptions creates the shell tool using platform-appropriate
+// defaults and optional settings.json overrides.
+func CreateBashToolWithOptions(cwd string, options BashOptions) *agent.AgentTool {
+	shellConfig := shellcmd.Resolve(options.ShellPath)
 	return &agent.AgentTool{
 		Tool: ai.Tool{
 			Name: "bash",
 			Description: fmt.Sprintf(
-				"Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last %d lines or %dKB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
-				DefaultMaxLines, DefaultMaxBytes/1024,
+				"Execute a %s command in the current working directory. Returns stdout and stderr. Output is truncated to last %d lines or %dKB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+				shellConfig.Name, DefaultMaxLines, DefaultMaxBytes/1024,
 			),
 			Parameters: bashSchema,
 		},
 		Label: "bash",
 		Execute: func(ctx context.Context, _ string, params map[string]any, _ agent.AgentToolUpdateCallback) (agent.AgentToolResult, error) {
 			command, _ := argString(params, "command")
+			if options.CommandPrefix != "" {
+				command = options.CommandPrefix + "\n" + command
+			}
 			timeoutSeconds := argNumberPtr(params, "timeout")
 
 			timeoutDuration, err := resolveTimeoutMs(timeoutSeconds)
@@ -166,7 +199,7 @@ func CreateBashTool(cwd string) *agent.AgentTool {
 				return agent.AgentToolResult{}, err
 			}
 			if _, statErr := os.Stat(cwd); statErr != nil {
-				return agent.AgentToolResult{}, fmt.Errorf("working directory does not exist: %s; cannot execute bash commands", cwd)
+				return agent.AgentToolResult{}, fmt.Errorf("working directory does not exist: %s; cannot execute shell commands", cwd)
 			}
 
 			runCtx := ctx
@@ -177,18 +210,32 @@ func CreateBashTool(cwd string) *agent.AgentTool {
 				defer cancelTimeout()
 			}
 
-			cmd := exec.Command("sh", "-c", command)
+			cmd := shellConfig.Command(command)
 			cmd.Dir = cwd
 			cmd.Env = os.Environ()
 			configureBashCmd(cmd)
 
 			out := &safeOutputBuffer{}
-			cmd.Stdout = out
-			cmd.Stderr = out
+			outputReader, outputWriter, pipeErr := os.Pipe()
+			if pipeErr != nil {
+				return agent.AgentToolResult{}, pipeErr
+			}
+			cmd.Stdout = outputWriter
+			cmd.Stderr = outputWriter
 
 			if startErr := cmd.Start(); startErr != nil {
+				_ = outputWriter.Close()
+				_ = outputReader.Close()
 				return agent.AgentToolResult{}, startErr
 			}
+			_ = outputWriter.Close()
+
+			outputDone := make(chan struct{})
+			go func() {
+				_, _ = io.Copy(out, outputReader)
+				_ = outputReader.Close()
+				close(outputDone)
+			}()
 
 			done := make(chan error, 1)
 			go func() { done <- cmd.Wait() }()
@@ -204,6 +251,7 @@ func CreateBashTool(cwd string) *agent.AgentTool {
 				}
 			}
 
+			finishOutputPipe(outputReader, outputDone)
 			aborted := ctx.Err() != nil && !timedOut
 
 			fullOutput := out.String()

@@ -15,7 +15,7 @@ var DefaultToolNames = []string{"read", "bash", "edit", "write", "miru", "web_se
 // system prompt's "Available tools" section.
 var DefaultToolSnippets = map[string]string{
 	"read":       "Read file contents (with optional line offset/limit)",
-	"bash":       "Execute bash commands in the working directory",
+	"bash":       "Execute shell commands in the working directory",
 	"edit":       "Edit files with exact find/replace",
 	"write":      "Write files (creates or overwrites)",
 	"grep":       "Search file contents",
@@ -108,7 +108,7 @@ func BuildSystemPrompt(options BuildSystemPromptOptions) string {
 	}
 
 	if has["bash"] && !has["grep"] && !has["find"] && !has["ls"] {
-		addGuideline("Use bash for file operations like ls, rg, find")
+		addGuideline("Use the bash tool for shell-based file operations and searches")
 	}
 	if has["read"] && (has["edit"] || has["write"]) {
 		addGuideline("Prefer reading a file before editing it")

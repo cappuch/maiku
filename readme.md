@@ -41,6 +41,17 @@ open desktop/build/bin/maiku.app
 
 Env: `MAIKU_AGENT_DIR`, `MAIKU_SESSION_DIR`
 
+Shell commands use `$SHELL` (falling back to `sh`) on Unix and `%COMSPEC%`
+(falling back to `cmd.exe`) on Windows. Override the executable or prepend setup
+commands in `settings.json`:
+
+```json
+{
+  "shellPath": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+  "shellCommandPrefix": ""
+}
+```
+
 ## Web tools
 
 The default agent toolset includes:
