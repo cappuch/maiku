@@ -370,13 +370,21 @@ func sanitizeErrorBody(b []byte) string {
 // ---- Request building ----
 
 // resolveCacheControl picks the cache_control marker for this request.
-// Defaults to "short" (5-minute TTL) so prompt caching is on out of the box;
-// callers may opt out (CacheNone, e.g. compaction summaries) or extend to
-// "long" (1h TTL) when the provider supports it.
+// Prompt caching is always on unless callers opt out (CacheNone, e.g.
+// compaction summaries).
+//
+// Default retention: "long" (1h TTL) on endpoints known to accept the ttl
+// extension — agent turns routinely idle longer than the 5-minute window,
+// and a full-prefix rewrite costs far more than the pricier one-hour write.
+// Everything else (explicit CacheShort, or third-party
+// anthropic-compatible providers without a Compat opt-in) gets the plain
+// ephemeral marker, which carries the provider's default TTL.
 func resolveCacheControl(model ai.Model, opts *ai.SimpleStreamOptions) (json.RawMessage, bool) {
 	retention := opts.CacheRetention
-	if retention == "" || retention == ai.CacheShort {
-		retention = ai.CacheShort
+	if retention == "" {
+		// Unset defaults to 1h on endpoints that accept the ttl extension;
+		// explicit choices below always win.
+		retention = ai.CacheLong
 	}
 	if retention == ai.CacheNone {
 		return nil, false
@@ -394,13 +402,29 @@ func cacheTTL(retention ai.CacheRetention) string {
 	return "" // default 5-minute TTL
 }
 
-// supportsLongCacheRetention gates 1h TTL; first-party Anthropic models accept it,
-// some compatible providers reject the extension and should fall back to short.
+// supportsLongCacheRetention gates the `ttl:"1h"` extension.
+//
+// First-party Anthropic endpoints accept it. Some OpenAI-compatible or
+// anthropic-compatible proxies reject the extra field outright, so unknown
+// providers default to NO until they opt in via
+// Compat["supportsLongCacheRetention"]=true (or out with =false).
 func supportsLongCacheRetention(model ai.Model) bool {
 	if v, ok := model.Compat["supportsLongCacheRetention"].(bool); ok {
 		return v
 	}
-	return true
+	return isFirstPartyAnthropicEndpoint(model)
+}
+
+// isFirstPartyAnthropicEndpoint reports whether this model talks directly to
+// Anthropic's own API (provider id "anthropic" on the default or official
+// base URL), as opposed to a third-party service exposing a compatible wire
+// format.
+func isFirstPartyAnthropicEndpoint(model ai.Model) bool {
+	if model.Provider != "anthropic" {
+		return false
+	}
+	base := strings.TrimRight(model.BaseURL, "/")
+	return base == "" || base == defaultBaseURL
 }
 
 func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptions) (*anthropicRequest, error) {
@@ -557,16 +581,24 @@ func convertMessages(messages []ai.Message, cacheControl json.RawMessage, cacheE
 		}
 	}
 
-	// Rolling breakpoint on the LAST conversation block: the newest user turn
-	// (or tool-result turn) is always written; everything below the previous
-	// turn's boundary is cache-read back, so cache hits climb with the
+	// Rolling breakpoint on the last conversation block that can carry a
+	// marker: the newest user turn (or tool-result turn) is always written;
+	// everything before it is cache-read back, so cache hits climb with the
 	// transcript instead of rewriting the whole prefix every turn.
+	//
+	// The marker goes on the LAST USER-ROLE message even when assistant
+	// turns follow it: Anthropic matches on the longest shared prefix, so
+	// moving the breakpoint forward would force a fresh write of those
+	// blocks every request while gaining nothing. Walking back (instead of
+	// only inspecting the final message) keeps the guarantee when filtering
+	// drops empty trailing turns and the converted list ends non-user.
 	if cacheEnabled && len(out) > 0 {
-		last := &out[len(out)-1]
-		if last.Role == "user" {
-			if blocks, ok := last.Content.([]any); ok && len(blocks) > 0 {
-				lastBlock := blocks[len(blocks)-1]
-				switch b := lastBlock.(type) {
+		for i := len(out) - 1; i >= 0; i-- {
+			if out[i].Role != "user" {
+				continue
+			}
+			if blocks, ok := out[i].Content.([]any); ok && len(blocks) > 0 {
+				switch b := blocks[len(blocks)-1].(type) {
 				case anthropicTextBlock:
 					b.CacheControl = cacheControl
 					blocks[len(blocks)-1] = b
@@ -578,6 +610,7 @@ func convertMessages(messages []ai.Message, cacheControl json.RawMessage, cacheE
 					blocks[len(blocks)-1] = b
 				}
 			}
+			break // at most one rolling message marker
 		}
 	}
 

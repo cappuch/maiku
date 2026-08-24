@@ -64,6 +64,12 @@ type AgentSessionOptions struct {
 	// ai.StreamSimple and is used by root-owned subagents to inherit custom
 	// host runtimes without changing the agent loop.
 	StreamFn agent.StreamFn
+	// SessionID overrides the persisted session's ID for provider-side cache
+	// routing (e.g. OpenAI prompt_cache_key). When empty, the session
+	// manager's ID is used; sessions without a manager stay empty unless set
+	// explicitly. Ephemeral runs (subagents) should set it so every turn of
+	// one child keeps a single stable cache route.
+	SessionID string
 	// Sessions persists the transcript. May be nil for ephemeral runs.
 	Sessions *SessionManager
 	// Compaction controls automatic context compaction after each prompt.
@@ -123,10 +129,8 @@ func NewAgentSession(options AgentSessionOptions) *AgentSession {
 	}
 
 	var initialMessages []ai.Message
-	sessionID := ""
 	if options.Sessions != nil {
 		initialMessages = options.Sessions.Messages()
-		sessionID = options.Sessions.Header().ID
 	}
 
 	model := options.Model
@@ -134,6 +138,11 @@ func NewAgentSession(options AgentSessionOptions) *AgentSession {
 	streamFn := options.StreamFn
 	if streamFn == nil {
 		streamFn = ai.StreamSimple
+	}
+
+	sessionID := options.SessionID
+	if sessionID == "" && options.Sessions != nil {
+		sessionID = options.Sessions.Header().ID
 	}
 
 	a := agent.NewAgent(agent.AgentOptions{

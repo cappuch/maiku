@@ -8,7 +8,7 @@ import (
 )
 
 func testModel() ai.Model {
-	return ai.Model{ID: "claude-sonnet-4-5", MaxTokens: 4096}
+	return ai.Model{ID: "claude-sonnet-4-5", Provider: "anthropic", MaxTokens: 4096}
 }
 
 func mustBuild(t *testing.T, model ai.Model, ctx ai.Context, opts *ai.SimpleStreamOptions) *anthropicRequest {
@@ -69,11 +69,11 @@ func TestCacheControlDefaultShort(t *testing.T) {
 	}
 	req := mustBuild(t, testModel(), ctx, &ai.SimpleStreamOptions{})
 
-	// Default retention is "short": caching is on.
+	// Default retention resolves to "long" on first-party Anthropic.
 	if len(req.System) != 1 || len(req.System[0].CacheControl) == 0 {
 		t.Fatalf("expected cache_control on system, got %+v", req.System)
 	}
-	if string(req.System[0].CacheControl) != `{"type":"ephemeral"}` {
+	if string(req.System[0].CacheControl) != `{"type":"ephemeral","ttl":"1h"}` {
 		t.Fatalf("unexpected system cache_control: %s", req.System[0].CacheControl)
 	}
 	// Only the LAST tool definition carries a breakpoint.
@@ -100,6 +100,38 @@ func TestCacheControlLongTTL(t *testing.T) {
 	if string(req.System[0].CacheControl) != `{"type":"ephemeral","ttl":"1h"}` {
 		t.Fatalf("unexpected long cache_control: %s", req.System[0].CacheControl)
 	}
+
+	// Explicit short stays short even on a capable endpoint.
+	short := &ai.SimpleStreamOptions{}
+	short.CacheRetention = ai.CacheShort
+	reqShort := mustBuild(t, testModel(), ctx, short)
+	if string(reqShort.System[0].CacheControl) != `{"type":"ephemeral"}` {
+		t.Fatalf("expected plain ephemeral for explicit CacheShort, got %s", reqShort.System[0].CacheControl)
+	}
+}
+
+// Third-party anthropic-compatible endpoints get the plain ephemeral marker
+// unless they opt in via Compat["supportsLongCacheRetention"].
+func TestCacheControlThirdPartyDefaultsShort(t *testing.T) {
+	ctx := ai.Context{
+		SystemPrompt: "you are maiku",
+		Messages:     []ai.Message{{Role: "user", UserContent: "hello"}},
+	}
+	model := testModel()
+	model.Provider = "minimax"
+	model.BaseURL = "https://api.minimax.io/anthropic"
+
+	req := mustBuild(t, model, ctx, &ai.SimpleStreamOptions{})
+	if string(req.System[0].CacheControl) != `{"type":"ephemeral"}` {
+		t.Fatalf("third-party default should be plain ephemeral, got %s", req.System[0].CacheControl)
+	}
+
+	optedIn := model
+	optedIn.Compat = map[string]any{"supportsLongCacheRetention": true}
+	reqLong := mustBuild(t, optedIn, ctx, &ai.SimpleStreamOptions{})
+	if string(reqLong.System[0].CacheControl) != `{"type":"ephemeral","ttl":"1h"}` {
+		t.Fatalf("Compat opt-in should grant 1h ttl, got %s", reqLong.System[0].CacheControl)
+	}
 }
 
 func TestCacheControlNone(t *testing.T) {
@@ -109,9 +141,19 @@ func TestCacheControlNone(t *testing.T) {
 		Tools:        []ai.Tool{{Name: "read", Parameters: json.RawMessage(`{"type":"object"}`)}},
 	}
 	req := mustBuild(t, testModel(), ctx, &ai.SimpleStreamOptions{})
-	// No system prompt in this ctx: last tool + last message = 2 breakpoints.
-	if countCacheControl(req) != 2 {
-		t.Fatalf("expected 2 breakpoints with default options, got %d", countCacheControl(req))
+	// The rolling breakpoint lands on the newest USER message even though an
+	// assistant turn trails it: prefix matching makes moving the marker
+	// forward pure write cost.
+	if got := countCacheControl(req); got != 3 {
+		t.Fatalf("expected 3 breakpoints (system+last tool+last user msg), got %d", got)
+	}
+	firstMsg := req.Messages[0]
+	blocks, ok := firstMsg.Content.([]any)
+	if !ok || len(blocks) == 0 {
+		t.Fatalf("expected first message []any content, got %T", firstMsg.Content)
+	}
+	if textBlock, ok := blocks[0].(anthropicTextBlock); !ok || len(textBlock.CacheControl) == 0 {
+		t.Fatalf("expected marker on first user block, got %T", blocks[0])
 	}
 
 	none := &ai.SimpleStreamOptions{}
@@ -190,6 +232,36 @@ func TestToolResultBreakpoint(t *testing.T) {
 	}
 }
 
+// A trailing assistant turn (e.g. an aborted empty shell that survived
+// filtering) must not strand the rolling breakpoint: it stays on the last
+// user message so the prefix below keeps cache-hitting.
+func TestRollingBreakpointSurvivesTrailingAssistantTurn(t *testing.T) {
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			{Role: "user", UserContent: "first"},
+			{Role: "assistant", AssistantContent: []ai.AssistantContentBlock{ai.TextBlock("a")}},
+			{Role: "user", UserContent: "second"},
+			{Role: "assistant", AssistantContent: []ai.AssistantContentBlock{ai.TextBlock("b")}},
+		},
+	}
+	req := mustBuild(t, testModel(), ctx, &ai.SimpleStreamOptions{})
+	last := req.Messages[len(req.Messages)-1]
+	if blocks, ok := last.Content.([]any); ok {
+		if textBlock, isText := blocks[0].(anthropicTextBlock); isText && len(textBlock.CacheControl) > 0 {
+			t.Fatal("marker must not sit on the trailing assistant turn")
+		}
+	}
+	userMsg := req.Messages[len(req.Messages)-2]
+	blocks, ok := userMsg.Content.([]any)
+	if !ok || len(blocks) == 0 {
+		t.Fatalf("expected user message []any content, got %T", userMsg.Content)
+	}
+	textBlock, ok := blocks[len(blocks)-1].(anthropicTextBlock)
+	if !ok || len(textBlock.CacheControl) == 0 {
+		t.Fatalf("expected marker on last user message, got %T (%+v)", blocks[len(blocks)-1], blocks)
+	}
+}
+
 func TestLongCacheRetentionCompatGate(t *testing.T) {
 	ctx := ai.Context{
 		SystemPrompt: "you are maiku",
@@ -205,6 +277,6 @@ func TestLongCacheRetentionCompatGate(t *testing.T) {
 		t.Fatalf("expected system cache_control, got %+v", req.System)
 	}
 	if string(req.System[0].CacheControl) != `{"type":"ephemeral"}` {
-		t.Fatalf("expected fallback to 5-min TTL, got %s", req.System[0].CacheControl)
+		t.Fatalf("expected Compat opt-out to force plain ephemeral, got %s", req.System[0].CacheControl)
 	}
 }

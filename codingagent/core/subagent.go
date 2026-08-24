@@ -304,6 +304,9 @@ func (r *SubagentRunner) run(ctx context.Context, id, task string, onUpdate agen
 		APIKey:        options.APIKey,
 		Retry:         options.Retry,
 		StreamFn:      streamFn,
+		// Stable per-child cache route: every turn of one delegation shares
+		// a prompt_cache_key (OpenAI Responses) instead of drifting shards.
+		SessionID: ai.UUIDv7(),
 	})
 	trace := &subagentTrace{}
 	unsubscribe := child.Subscribe(func(event agent.AgentEvent) {

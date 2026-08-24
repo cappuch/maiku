@@ -53,6 +53,10 @@ type responsesRequest struct {
 	Tools           []responsesTool `json:"tools,omitempty"`
 	Reasoning       *reasoningParam `json:"reasoning,omitempty"`
 	Include         []string        `json:"include,omitempty"`
+	// PromptCacheKey pins OpenAI's cache routing so every request of one
+	// conversation lands on the same cache shard; without it the routing
+	// hash drifts and multi-turn agents lose their prefix discounts.
+	PromptCacheKey string `json:"prompt_cache_key,omitempty"`
 }
 
 // Input item shapes (marshaled as elements of responsesRequest.Input).
@@ -708,6 +712,12 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 		Input:  convertMessages(model, ctxData),
 		Stream: true,
 		Store:  false,
+	}
+
+	// Route all turns of one session to the same OpenAI cache shard so the
+	// growing prefix is cache-read instead of re-billed as fresh input.
+	if opts.SessionID != "" && opts.CacheRetention != ai.CacheNone {
+		req.PromptCacheKey = opts.SessionID
 	}
 
 	maxTokens := model.MaxTokens
