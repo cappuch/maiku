@@ -7,6 +7,7 @@ import {
   FolderOpen,
   Pencil,
   Plus,
+  Server,
   Settings,
   Square,
 } from "lucide-react";
@@ -14,6 +15,7 @@ import type {
   APIKeyStatus,
   AppState,
   ImageAttachment,
+  MCPStatus,
   ModelInfo,
   SessionSummary,
   UIMessage,
@@ -97,6 +99,7 @@ export function AppShell(props: Props) {
   const [dirMenuOpen, setDirMenuOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [settingsTab, setSettingsTab] = useState<"providers" | "miru" | "mcp">("providers");
   const dirMenuRef = useRef<HTMLDivElement>(null);
 
   // Clicking anywhere outside the folder menu closes it.
@@ -138,7 +141,7 @@ export function AppShell(props: Props) {
         props.onToggleSidebar();
       } else if (key === ",") {
         event.preventDefault();
-        props.onToggleSettings();
+        toggleSettings();
       }
     };
     window.addEventListener("keydown", onShortcut);
@@ -156,6 +159,20 @@ export function AppShell(props: Props) {
       y: Math.min(e.clientY, window.innerHeight - 140),
       path,
     });
+  };
+
+  const openSettings = (tab: "providers" | "miru" | "mcp" = "providers") => {
+    setSettingsTab(tab);
+    if (!settingsOpen) props.onToggleSettings();
+  };
+
+  const toggleSettings = () => {
+    if (settingsOpen) {
+      setSettingsTab("providers");
+      props.onToggleSettings();
+      return;
+    }
+    openSettings("providers");
   };
 
   const startRename = (path: string) => {
@@ -277,7 +294,7 @@ export function AppShell(props: Props) {
           <button
             type="button"
             data-wails-no-drag
-            onClick={props.onToggleSettings}
+            onClick={toggleSettings}
             className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"
             title={`Settings (${shortcutPrefix},)`}
             aria-label="Open settings"
@@ -416,7 +433,7 @@ export function AppShell(props: Props) {
           {!state.hasApiKey && (
             <button
               type="button"
-              onClick={props.onToggleSettings}
+              onClick={() => openSettings("providers")}
               className="border-b border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] px-4 py-2 text-left text-sm text-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_17%,transparent)]"
             >
               No API key for <strong>{state.provider || "provider"}</strong>. <span className="underline underline-offset-2">Open Settings</span>
@@ -459,6 +476,10 @@ export function AppShell(props: Props) {
         <Stat label="total cost" value={formatCost(usage.totalCost ?? usage.cost)} accent />
         <Stat label="tok/s" value={formatRate(tokensPerSec)} />
         <span className="ml-auto truncate">{state.cwd || "open a folder to begin"}</span>
+        <MCPStatusIndicator
+          status={state.mcp}
+          onOpen={() => openSettings("mcp")}
+        />
         {streaming && (
           <span className="flex items-center gap-1 text-[var(--color-accent)]">
             <Square size={10} className="animate-pulse" fill="currentColor" />
@@ -500,11 +521,55 @@ export function AppShell(props: Props) {
         <SettingsDialog
           keys={keys}
           onSave={props.onSaveKey}
-          onClose={props.onToggleSettings}
+          onClose={() => {
+            setSettingsTab("providers");
+            props.onToggleSettings();
+          }}
           codexLogin={props.codexLogin}
+          initialTab={settingsTab}
         />
       )}
     </div>
+  );
+}
+
+function MCPStatusIndicator({
+  status,
+  onOpen,
+}: {
+  status?: MCPStatus;
+  onOpen: () => void;
+}) {
+  const configured = status?.configured ?? 0;
+  const connected = status?.connected ?? 0;
+  const failed = status?.failed ?? 0;
+  if (configured === 0) return null;
+
+  const tone =
+    connected > 0
+      ? "text-[var(--color-accent)]"
+      : failed > 0
+        ? "text-[var(--color-danger)]"
+        : "text-[var(--color-muted)]";
+
+  const title =
+    connected > 0
+      ? `${connected} MCP server${connected === 1 ? "" : "s"} connected`
+      : failed > 0
+        ? `${failed} MCP server${failed === 1 ? "" : "s"} failed`
+        : `${configured} MCP server${configured === 1 ? "" : "s"} configured`;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={title}
+      aria-label={title}
+      className={`flex items-center gap-1 transition hover:text-[var(--color-text)] ${tone}`}
+    >
+      <Server size={11} />
+      <span>{connected}/{configured}</span>
+    </button>
   );
 }
 

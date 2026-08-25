@@ -29,6 +29,7 @@ import (
 	"github.com/mikus/maiku/codingagent/cli"
 	"github.com/mikus/maiku/codingagent/core"
 	"github.com/mikus/maiku/codingagent/core/compaction"
+	mcppkg "github.com/mikus/maiku/codingagent/core/mcp"
 )
 
 // liveSession is an in-memory agent bound to a session file. Streaming lives
@@ -64,6 +65,8 @@ type App struct {
 	codexLoginCancel context.CancelFunc
 	codexPollCtx     context.Context
 	codexDevice      *openaicodexoauth.DeviceAuth
+
+	mcp *mcppkg.Manager
 }
 
 // UsageTotals is the cumulative token/cost accounting for the open session.
@@ -99,6 +102,7 @@ type AppState struct {
 	StreamingSessionIDs []string    `json:"streamingSessionIds"`
 	StreamText          string      `json:"streamText"`
 	StreamThinking      string      `json:"streamThinking"`
+	MCP                 mcppkg.Status `json:"mcp"`
 }
 
 // UIMessage is a frontend-friendly transcript entry.
@@ -166,6 +170,7 @@ func NewApp() *App {
 		lastUIStreamUpdate: make(map[string]time.Time),
 		streamOffsets:      make(map[string]uiStreamOffsets),
 		recentDirs:         recentDirs,
+		mcp:                mcppkg.NewManager(),
 	}
 	if cwd != "" {
 		a.rememberDir(cwd)
@@ -249,7 +254,45 @@ func (a *App) startup(ctx context.Context) {
 	a.mu.Lock()
 	a.pruneEmptySessionsLocked()
 	a.mu.Unlock()
+	a.syncMCP()
 	_ = a.ensureSession()
+}
+
+func (a *App) syncMCP() {
+	if a.mcp == nil {
+		return
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	a.mu.Lock()
+	cwd := a.cwd
+	a.mu.Unlock()
+	_ = a.mcp.Sync(ctx, cwd, codingagent.GetAgentDir())
+	a.refreshLiveTools()
+	a.emit("maiku:mcp", a.mcp.Snapshot())
+}
+
+// refreshLiveTools rebuilds tool registries for every live session so MCP
+// changes take effect without restarting the app.
+func (a *App) refreshLiveTools() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	agentDir := codingagent.GetAgentDir()
+	subagentEnabled := core.LoadSettings(a.cwd, agentDir).Settings.SubagentEnabled()
+	for _, live := range a.live {
+		if live == nil || live.session == nil {
+			continue
+		}
+		cwd := a.cwd
+		if live.mgr != nil && live.mgr.Header().Cwd != "" {
+			cwd = live.mgr.Header().Cwd
+		}
+		tools, prompt := a.rootAgentConfigLocked(cwd, agentDir, live.subagents, subagentEnabled)
+		live.session.Agent().SetTools(tools)
+		live.session.Agent().SetSystemPrompt(prompt)
+	}
 }
 
 // refreshConfiguredModels fetches /models for every provider that has a key,
@@ -475,7 +518,7 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 		ShellPath:          settings.Settings.ShellPath,
 		ShellCommandPrefix: settings.Settings.ShellCommandPrefix,
 	})
-	tools, systemPrompt := rootAgentConfig(
+	tools, systemPrompt := a.rootAgentConfigLocked(
 		cwd,
 		codingagent.GetAgentDir(),
 		subagents,
@@ -513,10 +556,10 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 	return live, nil
 }
 
-// rootAgentConfig builds the root tool registry and its matching system prompt.
-// These must change together so disabling subagents does not leave stale
-// orchestration instructions in the prompt.
-func rootAgentConfig(cwd, agentDir string, subagents *core.SubagentRunner, subagentEnabled bool) ([]agent.AgentTool, string) {
+// rootAgentConfigLocked builds the root tool registry and its matching system
+// prompt. Caller must hold a.mu when reading a.mcp is not required (Manager is
+// concurrency-safe), but this keeps session rebuilds consistent with App state.
+func (a *App) rootAgentConfigLocked(cwd, agentDir string, subagents *core.SubagentRunner, subagentEnabled bool) ([]agent.AgentTool, string) {
 	if subagents != nil {
 		subagents.SetEnabled(subagentEnabled)
 	}
@@ -539,6 +582,16 @@ func rootAgentConfig(cwd, agentDir string, subagents *core.SubagentRunner, subag
 			ShellCommandPrefix: settings.ShellCommandPrefix,
 		},
 	)
+	snippets := map[string]string{}
+	for k, v := range core.DefaultToolSnippets {
+		snippets[k] = v
+	}
+	if a.mcp != nil {
+		tools = append(tools, a.mcp.Tools()...)
+		for k, v := range a.mcp.ToolSnippets() {
+			snippets[k] = v
+		}
+	}
 	toolNames := make([]string, 0, len(tools))
 	for _, tool := range tools {
 		toolNames = append(toolNames, tool.Name)
@@ -549,11 +602,18 @@ func rootAgentConfig(cwd, agentDir string, subagents *core.SubagentRunner, subag
 	}).Skills
 	prompt := core.BuildSystemPrompt(core.BuildSystemPromptOptions{
 		SelectedTools: toolNames,
+		ToolSnippets:  snippets,
 		Cwd:           cwd,
 		ContextFiles:  contextFiles,
 		Skills:        skills,
 	})
 	return tools, prompt
+}
+
+// rootAgentConfig is kept for tests that don't need MCP.
+func rootAgentConfig(cwd, agentDir string, subagents *core.SubagentRunner, subagentEnabled bool) ([]agent.AgentTool, string) {
+	a := &App{}
+	return a.rootAgentConfigLocked(cwd, agentDir, subagents, subagentEnabled)
 }
 
 func (a *App) onAgentEvent(sessionID string, event agent.AgentEvent) {
@@ -1077,7 +1137,15 @@ func (a *App) GetState() AppState {
 		StreamingSessionIDs: a.streamingSessionIDsLocked(),
 		StreamText:          streamText,
 		StreamThinking:      streamThinking,
+		MCP:                 a.mcpStatusLocked(),
 	}
+}
+
+func (a *App) mcpStatusLocked() mcppkg.Status {
+	if a.mcp == nil {
+		return mcppkg.Status{}
+	}
+	return a.mcp.Snapshot()
 }
 
 // ListModels returns the model catalog, enriched with the configured
@@ -1176,7 +1244,7 @@ func (a *App) SetSubagentEnabled(enabled bool) error {
 		if live.mgr != nil && live.mgr.Header().Cwd != "" {
 			cwd = live.mgr.Header().Cwd
 		}
-		tools, prompt := rootAgentConfig(cwd, agentDir, live.subagents, enabled)
+		tools, prompt := a.rootAgentConfigLocked(cwd, agentDir, live.subagents, enabled)
 		live.session.Agent().SetTools(tools)
 		live.session.Agent().SetSystemPrompt(prompt)
 	}
@@ -1205,12 +1273,17 @@ func (a *App) OpenRecentFolder(path string) error {
 	}
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.cwd = path
 	a.rememberDirLocked(path)
 	dir := codingagent.GetDefaultSessionDir(path)
 	_ = os.MkdirAll(dir, 0o755)
-	return a.focusNewLocked(core.NewSessionManager(path, dir, true))
+	err = a.focusNewLocked(core.NewSessionManager(path, dir, true))
+	a.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	a.syncMCP()
+	return nil
 }
 
 // pruneEmptySessionsLocked deletes persisted session files that contain no
@@ -1300,15 +1373,17 @@ func (a *App) OpenFolder() (string, error) {
 		return a.cwd, nil
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.cwd = path
 	a.rememberDirLocked(path)
 	dir := codingagent.GetDefaultSessionDir(path)
 	_ = os.MkdirAll(dir, 0o755)
 	mgr := core.NewSessionManager(path, dir, true)
-	if err := a.focusNewLocked(mgr); err != nil {
+	err = a.focusNewLocked(mgr)
+	a.mu.Unlock()
+	if err != nil {
 		return "", err
 	}
+	a.syncMCP()
 	return path, nil
 }
 
@@ -1370,6 +1445,75 @@ func (a *App) SetAPIKey(provider, key string) error {
 		return store.Delete(provider)
 	}
 	return store.Write(provider, core.Credential{Type: core.CredentialAPIKey, Key: key})
+}
+
+// ListMCPServers returns configured MCP servers and their connection status.
+func (a *App) ListMCPServers() []mcppkg.ServerStatus {
+	if a.mcp == nil {
+		return nil
+	}
+	return a.mcp.Snapshot().Servers
+}
+
+// GetMCPStatus returns aggregate MCP connection status for the status bar.
+func (a *App) GetMCPStatus() mcppkg.Status {
+	if a.mcp == nil {
+		return mcppkg.Status{}
+	}
+	return a.mcp.Snapshot()
+}
+
+// MCPServerInput is the payload for creating/updating a stdio MCP server.
+type MCPServerInput struct {
+	Name     string            `json:"name"`
+	Command  string            `json:"command"`
+	Args     []string          `json:"args,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	Disabled bool              `json:"disabled,omitempty"`
+}
+
+// UpsertMCPServer writes a stdio server into ~/.maiku/agent/mcp.json and reconnects.
+func (a *App) UpsertMCPServer(input MCPServerInput) error {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return fmt.Errorf("server name is required")
+	}
+	cfg := mcppkg.ServerConfig{
+		Command:  strings.TrimSpace(input.Command),
+		Args:     input.Args,
+		Env:      input.Env,
+		Type:     "stdio",
+		Disabled: input.Disabled,
+	}
+	if err := mcppkg.UpsertGlobal(codingagent.GetAgentDir(), name, cfg); err != nil {
+		return err
+	}
+	a.syncMCP()
+	return nil
+}
+
+// RemoveMCPServer deletes a server from the global mcp.json and disconnects it.
+func (a *App) RemoveMCPServer(name string) error {
+	if err := mcppkg.RemoveGlobal(codingagent.GetAgentDir(), name); err != nil {
+		return err
+	}
+	a.syncMCP()
+	return nil
+}
+
+// SetMCPServerEnabled toggles whether a global MCP server should connect.
+func (a *App) SetMCPServerEnabled(name string, enabled bool) error {
+	if err := mcppkg.SetDisabledGlobal(codingagent.GetAgentDir(), name, !enabled); err != nil {
+		return err
+	}
+	a.syncMCP()
+	return nil
+}
+
+// ReloadMCP re-reads mcp.json and reconnects servers.
+func (a *App) ReloadMCP() error {
+	a.syncMCP()
+	return nil
 }
 
 // CodexLoginInfo is returned when starting ChatGPT Codex device login.

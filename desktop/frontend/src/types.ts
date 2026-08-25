@@ -82,6 +82,35 @@ export type AppState = {
   streamingSessionIds: string[];
   streamText: string;
   streamThinking: string;
+  mcp?: MCPStatus;
+};
+
+export type MCPServerStatus = {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  disabled: boolean;
+  connected: boolean;
+  error?: string;
+  toolCount: number;
+  tools?: string[];
+  scope: string;
+};
+
+export type MCPStatus = {
+  configured: number;
+  connected: number;
+  failed: number;
+  servers: MCPServerStatus[];
+};
+
+export type MCPServerInput = {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  disabled?: boolean;
 };
 
 export type ModelInfo = {

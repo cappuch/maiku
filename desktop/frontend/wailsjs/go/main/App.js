@@ -26,6 +26,10 @@ export function FinishOpenAICodexLogin() {
   return window['go']['main']['App']['FinishOpenAICodexLogin']();
 }
 
+export function GetMCPStatus() {
+  return window['go']['main']['App']['GetMCPStatus']();
+}
+
 export function GetState() {
   return window['go']['main']['App']['GetState']();
 }
@@ -36,6 +40,10 @@ export function Goal(arg1) {
 
 export function ListAPIKeys() {
   return window['go']['main']['App']['ListAPIKeys']();
+}
+
+export function ListMCPServers() {
+  return window['go']['main']['App']['ListMCPServers']();
 }
 
 export function ListModels() {
@@ -74,12 +82,24 @@ export function RecentDirs() {
   return window['go']['main']['App']['RecentDirs']();
 }
 
+export function ReloadMCP() {
+  return window['go']['main']['App']['ReloadMCP']();
+}
+
+export function RemoveMCPServer(arg1) {
+  return window['go']['main']['App']['RemoveMCPServer'](arg1);
+}
+
 export function RenameSession(arg1, arg2) {
   return window['go']['main']['App']['RenameSession'](arg1, arg2);
 }
 
 export function SetAPIKey(arg1, arg2) {
   return window['go']['main']['App']['SetAPIKey'](arg1, arg2);
+}
+
+export function SetMCPServerEnabled(arg1, arg2) {
+  return window['go']['main']['App']['SetMCPServerEnabled'](arg1, arg2);
 }
 
 export function SetModel(arg1, arg2) {
@@ -92,4 +112,8 @@ export function SetSubagentEnabled(arg1) {
 
 export function SetThinking(arg1) {
   return window['go']['main']['App']['SetThinking'](arg1);
+}
+
+export function UpsertMCPServer(arg1) {
+  return window['go']['main']['App']['UpsertMCPServer'](arg1);
 }

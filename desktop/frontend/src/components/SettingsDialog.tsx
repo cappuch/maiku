@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Code2, KeyRound, Search, X } from "lucide-react";
+import { Code2, KeyRound, Plus, RefreshCw, Search, Server, Trash2, X } from "lucide-react";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
-import type { APIKeyStatus } from "../types";
+import {
+  ListMCPServers,
+  ReloadMCP,
+  RemoveMCPServer,
+  SetMCPServerEnabled,
+  UpsertMCPServer,
+} from "../../wailsjs/go/main/App";
+import type { APIKeyStatus, MCPServerStatus } from "../types";
 
 export type CodexLoginHandlers = {
   begin: () => Promise<{ userCode: string; verificationUri: string }>;
@@ -9,21 +16,29 @@ export type CodexLoginHandlers = {
   cancel: () => Promise<void> | void;
 };
 
+type SettingsTab = "providers" | "miru" | "mcp";
+
 export function SettingsDialog({
   keys,
   onSave,
   onClose,
   codexLogin,
+  initialTab = "providers",
 }: {
   keys: APIKeyStatus[];
   onSave: (provider: string, key: string) => Promise<void> | void;
   onClose: () => void;
   codexLogin?: CodexLoginHandlers;
+  initialTab?: SettingsTab;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<"providers" | "miru">("providers");
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
   const [codexBusy, setCodexBusy] = useState(false);
   const [codexInfo, setCodexInfo] = useState<{ userCode: string; verificationUri: string } | null>(null);
   const [codexError, setCodexError] = useState<string | null>(null);
@@ -139,8 +154,11 @@ export function SettingsDialog({
             <button type="button" onClick={() => setTab("providers")} className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "providers" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
               <KeyRound size={14} /> Providers
             </button>
-            <button type="button" onClick={() => setTab("miru")} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "miru" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
+            <button type="button" onClick={() => setTab("miru")} className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "miru" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
               <Code2 size={14} /> Miru Code
+            </button>
+            <button type="button" onClick={() => setTab("mcp")} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "mcp" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
+              <Server size={14} /> MCP
             </button>
           </nav>
 
@@ -298,7 +316,7 @@ export function SettingsDialog({
             })}
           </div>
         </div>
-        </> : (
+        </> : tab === "miru" ? (
           <div className="min-h-0 flex-1 overflow-y-auto p-6">
             <div className="mx-auto max-w-2xl">
               <div className="mb-6 flex items-start gap-3">
@@ -356,9 +374,326 @@ export function SettingsDialog({
               )}
             </div>
           </div>
+        ) : (
+          <MCPSettingsPane />
         )}
           </section>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MCPSettingsPane() {
+  const [servers, setServers] = useState<MCPServerStatus[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editName, setEditName] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [command, setCommand] = useState("");
+  const [argsText, setArgsText] = useState("");
+  const [envText, setEnvText] = useState("");
+
+  const refresh = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await ListMCPServers();
+      setServers(list ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const resetForm = () => {
+    setShowForm(false);
+    setEditName(null);
+    setName("");
+    setCommand("");
+    setArgsText("");
+    setEnvText("");
+  };
+
+  const openEdit = (server: MCPServerStatus) => {
+    setEditName(server.name);
+    setName(server.name);
+    setCommand(server.command || "");
+    setArgsText((server.args || []).join(" "));
+    setEnvText(
+      Object.entries(server.env || {})
+        .map(([k, v]) => `${k}=${v}`)
+        .join("\n"),
+    );
+    setShowForm(true);
+  };
+
+  const parseArgs = (text: string) =>
+    text
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+  const parseEnv = (text: string) => {
+    const env: Record<string, string> = {};
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq <= 0) continue;
+      env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1);
+    }
+    return env;
+  };
+
+  const saveServer = async () => {
+    const serverName = name.trim();
+    const cmd = command.trim();
+    if (!serverName || !cmd) {
+      setError("Name and command are required");
+      return;
+    }
+    setBusy("save");
+    setError(null);
+    try {
+      if (editName && editName !== serverName) {
+        await RemoveMCPServer(editName);
+      }
+      await UpsertMCPServer({
+        name: serverName,
+        command: cmd,
+        args: parseArgs(argsText),
+        env: parseEnv(envText),
+        disabled: false,
+      });
+      resetForm();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-[var(--color-panel-2)] p-2 text-[var(--color-accent)]">
+              <Server size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold">MCP servers</h3>
+              <p className="mt-1 text-xs leading-5 text-[var(--color-muted)]">
+                Hook up Model Context Protocol servers over stdio. Tools are exposed as{" "}
+                <span className="font-mono">mcp__name__tool</span>. Config lives in{" "}
+                <span className="font-mono">~/.maiku/agent/mcp.json</span>.
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => void (async () => {
+                setBusy("reload");
+                try {
+                  await ReloadMCP();
+                  await refresh();
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setBusy(null);
+                }
+              })()}
+              className="flex items-center gap-1.5 rounded-lg border border-[var(--color-line)] px-3 py-2 text-xs text-[var(--color-muted)] transition hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"
+              title="Reload MCP servers"
+            >
+              <RefreshCw size={12} className={busy === "reload" ? "animate-spin" : ""} />
+              Reload
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                resetForm();
+                setShowForm(true);
+              }}
+              className="flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)] px-3 py-2 text-xs font-medium text-[var(--color-ink)]"
+            >
+              <Plus size={12} />
+              Add server
+            </button>
+          </div>
+        </div>
+
+        {error ? (
+          <p role="alert" className="mb-4 text-[11px] text-[var(--color-danger)]">{error}</p>
+        ) : null}
+
+        {showForm ? (
+          <div className="mb-6 rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
+            <h4 className="mb-3 text-xs font-semibold">{editName ? `Edit ${editName}` : "New MCP server"}</h4>
+            <div className="grid gap-3">
+              <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+                Name
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={!!editName}
+                  placeholder="filesystem"
+                  className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
+                />
+              </label>
+              <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+                Command
+                <input
+                  value={command}
+                  onChange={(e) => setCommand(e.target.value)}
+                  placeholder="npx"
+                  className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
+                />
+              </label>
+              <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+                Args (space-separated)
+                <input
+                  value={argsText}
+                  onChange={(e) => setArgsText(e.target.value)}
+                  placeholder="-y @modelcontextprotocol/server-filesystem /path"
+                  className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
+                />
+              </label>
+              <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+                Env (KEY=value per line)
+                <textarea
+                  value={envText}
+                  onChange={(e) => setEnvText(e.target.value)}
+                  rows={3}
+                  placeholder={"API_KEY=${MY_KEY}"}
+                  className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                disabled={busy === "save"}
+                onClick={() => void saveServer()}
+                className="rounded-lg bg-[var(--color-accent)] px-4 py-2 text-xs font-medium text-[var(--color-ink)] disabled:opacity-40"
+              >
+                {busy === "save" ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={resetForm}
+                className="rounded-lg border border-[var(--color-line)] px-4 py-2 text-xs text-[var(--color-muted)] hover:bg-[var(--color-ink)]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {loading ? (
+          <p className="text-xs text-[var(--color-muted)]">Loading…</p>
+        ) : servers.length === 0 ? (
+          <p className="text-xs text-[var(--color-muted)]">No MCP servers configured yet.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {servers.map((server) => (
+              <div key={server.name} className="rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium">{server.name}</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          server.disabled
+                            ? "bg-[var(--color-ink)] text-[var(--color-muted)]"
+                            : server.connected
+                              ? "bg-emerald-500/15 text-emerald-400"
+                              : "bg-red-500/15 text-red-400"
+                        }`}
+                      >
+                        {server.disabled ? "Disabled" : server.connected ? "Connected" : "Error"}
+                      </span>
+                      <span className="text-[10px] text-[var(--color-muted)]">{server.scope}</span>
+                    </div>
+                    <p className="mt-1 truncate font-mono text-[10px] text-[var(--color-muted)]">
+                      {server.command} {(server.args || []).join(" ")}
+                    </p>
+                    {server.connected ? (
+                      <p className="mt-1 text-[10px] text-[var(--color-muted)]">
+                        {server.toolCount} tool{server.toolCount === 1 ? "" : "s"}
+                        {server.tools?.length
+                          ? `: ${server.tools.slice(0, 8).join(", ")}${server.tools.length > 8 ? "…" : ""}`
+                          : ""}
+                      </p>
+                    ) : null}
+                    {server.error ? (
+                      <p className="mt-1 text-[11px] text-[var(--color-danger)]">{server.error}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={busy === server.name || server.scope === "project"}
+                      onClick={() => void (async () => {
+                        setBusy(server.name);
+                        try {
+                          await SetMCPServerEnabled(server.name, server.disabled);
+                          await refresh();
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : String(err));
+                        } finally {
+                          setBusy(null);
+                        }
+                      })()}
+                      className="rounded-lg border border-[var(--color-line)] px-2.5 py-1.5 text-[10px] text-[var(--color-muted)] hover:bg-[var(--color-ink)] disabled:opacity-40"
+                      title={server.scope === "project" ? "Edit project mcp.json on disk" : undefined}
+                    >
+                      {server.disabled ? "Enable" : "Disable"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={server.scope === "project"}
+                      onClick={() => openEdit(server)}
+                      className="rounded-lg border border-[var(--color-line)] px-2.5 py-1.5 text-[10px] text-[var(--color-muted)] hover:bg-[var(--color-ink)] disabled:opacity-40"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy === server.name || server.scope === "project"}
+                      onClick={() => void (async () => {
+                        if (!window.confirm(`Remove MCP server “${server.name}”?`)) return;
+                        setBusy(server.name);
+                        try {
+                          await RemoveMCPServer(server.name);
+                          await refresh();
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : String(err));
+                        } finally {
+                          setBusy(null);
+                        }
+                      })()}
+                      className="rounded-lg border border-[var(--color-line)] p-1.5 text-[var(--color-muted)] hover:bg-[var(--color-ink)] hover:text-[var(--color-danger)] disabled:opacity-40"
+                      aria-label={`Remove ${server.name}`}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

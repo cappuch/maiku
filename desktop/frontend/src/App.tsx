@@ -58,6 +58,19 @@ function normalizeState(raw: Partial<AppState> | null | undefined): AppState {
       : [],
     streamText: typeof raw?.streamText === "string" ? raw.streamText : "",
     streamThinking: typeof raw?.streamThinking === "string" ? raw.streamThinking : "",
+    mcp: normalizeMCP(raw?.mcp),
+  };
+}
+
+function normalizeMCP(raw: AppState["mcp"] | null | undefined): AppState["mcp"] {
+  if (!raw || typeof raw !== "object") {
+    return { configured: 0, connected: 0, failed: 0, servers: [] };
+  }
+  return {
+    configured: typeof raw.configured === "number" ? raw.configured : 0,
+    connected: typeof raw.connected === "number" ? raw.connected : 0,
+    failed: typeof raw.failed === "number" ? raw.failed : 0,
+    servers: Array.isArray(raw.servers) ? raw.servers : [],
   };
 }
 
@@ -613,6 +626,13 @@ export default function App() {
         if (!isFocused(sid)) return;
         setError(data?.error || "Unknown error");
         setStreaming(false);
+      }),
+      EventsOn("maiku:mcp", (data) => {
+        setState((current) =>
+          current
+            ? { ...current, mcp: normalizeMCP(data) }
+            : current,
+        );
       }),
     ];
     return () => {
