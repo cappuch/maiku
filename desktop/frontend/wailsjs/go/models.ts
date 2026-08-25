@@ -1,5 +1,26 @@
 export namespace core {
 	
+	export class CustomProvider {
+	    id: string;
+	    name: string;
+	    baseUrl: string;
+	    api?: string;
+	    models?: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new CustomProvider(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.baseUrl = source["baseUrl"];
+	        this.api = source["api"];
+	        this.models = source["models"];
+	    }
+	}
+
 	export class SessionSummary {
 	    id: string;
 	    path: string;
@@ -220,9 +241,12 @@ export namespace main {
 	
 	export class MCPServerInput {
 	    name: string;
-	    command: string;
+	    kind?: string;
+	    command?: string;
 	    args?: string[];
 	    env?: Record<string, string>;
+	    url?: string;
+	    headers?: Record<string, string>;
 	    disabled?: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -232,9 +256,12 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
+	        this.kind = source["kind"];
 	        this.command = source["command"];
 	        this.args = source["args"];
 	        this.env = source["env"];
+	        this.url = source["url"];
+	        this.headers = source["headers"];
 	        this.disabled = source["disabled"];
 	    }
 	}
@@ -306,9 +333,12 @@ export namespace mcp {
 	
 	export class ServerStatus {
 	    name: string;
-	    command: string;
+	    kind: string;
+	    command?: string;
 	    args?: string[];
 	    env?: Record<string, string>;
+	    url?: string;
+	    headers?: Record<string, string>;
 	    disabled: boolean;
 	    connected: boolean;
 	    error?: string;
@@ -323,9 +353,12 @@ export namespace mcp {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
+	        this.kind = source["kind"];
 	        this.command = source["command"];
 	        this.args = source["args"];
 	        this.env = source["env"];
+	        this.url = source["url"];
+	        this.headers = source["headers"];
 	        this.disabled = source["disabled"];
 	        this.connected = source["connected"];
 	        this.error = source["error"];

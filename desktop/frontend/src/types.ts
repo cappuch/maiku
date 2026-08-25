@@ -62,6 +62,7 @@ export type UIMessage = {
   isError?: boolean;
   streaming?: boolean;
   images?: ImageAttachment[];
+  rawIndex?: number;
 };
 
 export type AppState = {
@@ -87,9 +88,12 @@ export type AppState = {
 
 export type MCPServerStatus = {
   name: string;
-  command: string;
+  kind?: string;
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
   disabled: boolean;
   connected: boolean;
   error?: string;
@@ -107,10 +111,21 @@ export type MCPStatus = {
 
 export type MCPServerInput = {
   name: string;
-  command: string;
+  kind?: string;
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
   disabled?: boolean;
+};
+
+export type CustomProvider = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  api?: string;
+  models?: string[];
 };
 
 export type ModelInfo = {

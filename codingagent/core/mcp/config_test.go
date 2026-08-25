@@ -84,11 +84,36 @@ func TestServerConfigEnabled(t *testing.T) {
 		{ServerConfig{Command: "x", Disabled: true}, false},
 		{ServerConfig{Command: "", Type: "stdio"}, false},
 		{ServerConfig{Command: "x", Type: "sse"}, false},
+		{ServerConfig{URL: "https://example.com/mcp"}, true},
+		{ServerConfig{URL: "https://example.com/mcp", Type: "http"}, true},
+		{ServerConfig{URL: "https://example.com/sse", Type: "sse"}, true},
+		{ServerConfig{URL: "", Type: "http"}, false},
+		{ServerConfig{URL: "https://example.com/mcp", Disabled: true}, false},
 	}
 	for _, tc := range cases {
 		if got := tc.cfg.Enabled(); got != tc.want {
 			t.Fatalf("Enabled(%+v)=%v want %v", tc.cfg, got, tc.want)
 		}
+	}
+}
+
+func TestUpsertHTTPServer(t *testing.T) {
+	agentDir := t.TempDir()
+	cfg := ServerConfig{
+		URL:     "https://example.com/mcp",
+		Type:    "http",
+		Headers: map[string]string{"Authorization": "Bearer ${TOKEN}"},
+	}
+	if err := UpsertGlobal(agentDir, "remote", cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded := Load("", agentDir)
+	got := loaded.Servers["remote"]
+	if got.Kind() != "http" || got.URL != "https://example.com/mcp" {
+		t.Fatalf("unexpected http config: %+v", got)
+	}
+	if got.Command != "" {
+		t.Fatalf("http server should not keep command: %+v", got)
 	}
 }
 

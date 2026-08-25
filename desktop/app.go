@@ -107,7 +107,7 @@ type AppState struct {
 
 // UIMessage is a frontend-friendly transcript entry.
 type UIMessage struct {
-	ID         string            `json:"id"`
+	ID         string            `json:"id,omitempty"`
 	Role       string            `json:"role"`
 	Text       string            `json:"text,omitempty"`
 	Thinking   string            `json:"thinking,omitempty"`
@@ -118,6 +118,9 @@ type UIMessage struct {
 	IsError    bool              `json:"isError,omitempty"`
 	Streaming  bool              `json:"streaming,omitempty"`
 	Images     []ImageAttachment `json:"images,omitempty"`
+	// RawIndex is the index into the session transcript for user messages,
+	// used by ResendUserMessage.
+	RawIndex *int `json:"rawIndex,omitempty"`
 }
 
 // uiStreamOffsets tracks only byte offsets into the current response. The UI
@@ -514,6 +517,7 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 			Enabled:     settings.Settings.RetryEnabled(),
 			MaxRetries:  settings.Settings.RetryMaxRetries(),
 			BaseDelayMs: settings.Settings.RetryBaseDelayMs(),
+			MaxDelayMs:  settings.Settings.RetryMaxDelayMs(),
 		},
 		ShellPath:          settings.Settings.ShellPath,
 		ShellCommandPrefix: settings.Settings.ShellCommandPrefix,
@@ -540,6 +544,16 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 			Enabled:     settings.Settings.RetryEnabled(),
 			MaxRetries:  settings.Settings.RetryMaxRetries(),
 			BaseDelayMs: settings.Settings.RetryBaseDelayMs(),
+			MaxDelayMs:  settings.Settings.RetryMaxDelayMs(),
+		},
+		OnRetry: func(attempt, maxAttempts, delayMs int, errorMessage string) {
+			a.emit("maiku:retry", map[string]any{
+				"sessionId":    sessionID,
+				"attempt":      attempt,
+				"maxAttempts":  maxAttempts,
+				"delayMs":      delayMs,
+				"errorMessage": errorMessage,
+			})
 		},
 	})
 
@@ -859,7 +873,11 @@ func toUIMessage(m ai.Message) UIMessage {
 	case "assistant":
 		text := assistantText(m)
 		if m.StopReason == ai.StopError {
-			text = "Temporary connection problem — we retried, but the request still failed."
+			if strings.TrimSpace(m.ErrorMessage) != "" {
+				text = m.ErrorMessage
+			} else if strings.TrimSpace(text) == "" {
+				text = "Request failed after retries."
+			}
 		}
 		return UIMessage{Role: "assistant", Text: text, Thinking: assistantThinking(m), IsError: m.StopReason == ai.StopError}
 	case "toolResult":
@@ -894,11 +912,18 @@ func transcriptUIMessages(messages []ai.Message) []UIMessage {
 
 	var out []UIMessage
 	seenResults := map[string]bool{}
-	for _, m := range messages {
+	for i, m := range messages {
 		switch m.Role {
 		case "user":
-			out = append(out, toUIMessage(m))
+			ui := toUIMessage(m)
+			idx := i
+			ui.RawIndex = &idx
+			out = append(out, ui)
 		case "assistant":
+			if m.StopReason == ai.StopError {
+				out = append(out, toUIMessage(m))
+				continue
+			}
 			if text := assistantText(m); text != "" {
 				out = append(out, UIMessage{Role: "assistant", Text: text, Thinking: assistantThinking(m)})
 			} else if thinking := assistantThinking(m); thinking != "" {
@@ -1447,6 +1472,31 @@ func (a *App) SetAPIKey(provider, key string) error {
 	return store.Write(provider, core.Credential{Type: core.CredentialAPIKey, Key: key})
 }
 
+// ListCustomProviders returns user-defined OpenAI-compatible routes.
+func (a *App) ListCustomProviders() []core.CustomProvider {
+	return core.LoadCustomProviders(codingagent.GetAgentDir())
+}
+
+// UpsertCustomProvider creates or updates a custom OpenAI-compatible route.
+func (a *App) UpsertCustomProvider(provider core.CustomProvider) error {
+	if err := core.UpsertCustomProvider(codingagent.GetAgentDir(), provider); err != nil {
+		return err
+	}
+	_ = core.RefreshProviderModels(context.Background(), provider.ID)
+	a.refreshConfiguredModels()
+	return nil
+}
+
+// RemoveCustomProvider deletes a custom OpenAI-compatible route.
+func (a *App) RemoveCustomProvider(id string) error {
+	if err := core.RemoveCustomProvider(codingagent.GetAgentDir(), id); err != nil {
+		return err
+	}
+	_ = core.DefaultAuthStorage().Delete(id)
+	a.refreshConfiguredModels()
+	return nil
+}
+
 // ListMCPServers returns configured MCP servers and their connection status.
 func (a *App) ListMCPServers() []mcppkg.ServerStatus {
 	if a.mcp == nil {
@@ -1463,26 +1513,39 @@ func (a *App) GetMCPStatus() mcppkg.Status {
 	return a.mcp.Snapshot()
 }
 
-// MCPServerInput is the payload for creating/updating a stdio MCP server.
+// MCPServerInput is the payload for creating/updating an MCP server.
 type MCPServerInput struct {
 	Name     string            `json:"name"`
-	Command  string            `json:"command"`
+	Kind     string            `json:"kind,omitempty"` // stdio | http | sse
+	Command  string            `json:"command,omitempty"`
 	Args     []string          `json:"args,omitempty"`
 	Env      map[string]string `json:"env,omitempty"`
+	URL      string            `json:"url,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
 	Disabled bool              `json:"disabled,omitempty"`
 }
 
-// UpsertMCPServer writes a stdio server into ~/.maiku/agent/mcp.json and reconnects.
+// UpsertMCPServer writes a server into ~/.maiku/agent/mcp.json and reconnects.
 func (a *App) UpsertMCPServer(input MCPServerInput) error {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
 		return fmt.Errorf("server name is required")
 	}
+	kind := strings.ToLower(strings.TrimSpace(input.Kind))
+	if kind == "" {
+		if strings.TrimSpace(input.URL) != "" {
+			kind = "http"
+		} else {
+			kind = "stdio"
+		}
+	}
 	cfg := mcppkg.ServerConfig{
 		Command:  strings.TrimSpace(input.Command),
 		Args:     input.Args,
 		Env:      input.Env,
-		Type:     "stdio",
+		URL:      strings.TrimSpace(input.URL),
+		Headers:  input.Headers,
+		Type:     kind,
 		Disabled: input.Disabled,
 	}
 	if err := mcppkg.UpsertGlobal(codingagent.GetAgentDir(), name, cfg); err != nil {
@@ -1594,6 +1657,49 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 		return fmt.Errorf("empty prompt")
 	}
 	return a.promptWithDisplay(displayText, "", images)
+}
+
+// ResendUserMessage truncates the transcript to just before the user message
+// at rawIndex and sends that message again.
+func (a *App) ResendUserMessage(rawIndex int) error {
+	if err := a.ensureSession(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	live := a.activeLocked()
+	if live == nil || live.session == nil || live.mgr == nil {
+		a.mu.Unlock()
+		return fmt.Errorf("no active session")
+	}
+	if live.cancel != nil || live.session.State().IsStreaming {
+		a.mu.Unlock()
+		return fmt.Errorf("wait for the current response to finish")
+	}
+	messages := live.mgr.Messages()
+	if rawIndex < 0 || rawIndex >= len(messages) {
+		a.mu.Unlock()
+		return fmt.Errorf("invalid message index")
+	}
+	target := messages[rawIndex]
+	if target.Role != "user" {
+		a.mu.Unlock()
+		return fmt.Errorf("not a user message")
+	}
+	display := stripInjectedFiles(ai.ContentText(target.UserContent))
+	images := extractUserImages(target.UserContent)
+	kept := append([]ai.Message{}, messages[:rawIndex]...)
+	if err := live.mgr.ReplaceMessages(kept); err != nil {
+		a.mu.Unlock()
+		return err
+	}
+	live.session.Agent().SetMessages(kept)
+	a.mu.Unlock()
+
+	uiImages := make([]ImageAttachment, 0, len(images))
+	for _, img := range images {
+		uiImages = append(uiImages, ImageAttachment{MimeType: img.MimeType, Data: img.Data})
+	}
+	return a.promptWithDisplay(display, "", uiImages)
 }
 
 // Goal arms a goal-driven run: writes a temporal memory markdown file under

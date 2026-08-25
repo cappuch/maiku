@@ -277,7 +277,7 @@ func run(out *ai.AssistantMessageEventStream, model ai.Model, ctxData ai.Context
 	}
 
 	client := &http.Client{}
-	resp, err := client.Do(httpReq)
+	resp, err := ai.DoHTTP(client, httpReq, ai.HTTPRetryPolicyFromStreamOptions(opts))
 	if err != nil {
 		if aborted {
 			fail(fmt.Errorf("request was aborted"), true)

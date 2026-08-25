@@ -15,13 +15,24 @@ import (
 // several API keys are present.
 const DefaultProviderID = "anthropic"
 
-// AllProviders returns known providers with their fetched model catalogs.
+// AllProviders returns known providers with their fetched model catalogs,
+// including user-defined custom OpenAI-compatible routes.
 func AllProviders() []providers.Provider {
 	builtin := providers.All()
-	out := make([]providers.Provider, len(builtin))
-	for i, p := range builtin {
-		out[i] = p
-		out[i].Models = CachedRemoteModels(p.ID)
+	customs := LoadCustomProviders("")
+	out := make([]providers.Provider, 0, len(builtin)+len(customs))
+	for _, p := range builtin {
+		p.Models = CachedRemoteModels(p.ID)
+		out = append(out, p)
+	}
+	for _, custom := range customs {
+		p := CustomProviderAsRegistry(custom)
+		models := CachedRemoteModels(p.ID)
+		if len(models) == 0 {
+			models = StaticModelsFromCustom(custom)
+		}
+		p.Models = models
+		out = append(out, p)
 	}
 	return out
 }

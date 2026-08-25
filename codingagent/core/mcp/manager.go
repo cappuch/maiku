@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"sort"
@@ -31,9 +32,12 @@ type Status struct {
 // ServerStatus is the runtime view of one configured MCP server.
 type ServerStatus struct {
 	Name      string            `json:"name"`
-	Command   string            `json:"command"`
+	Kind      string            `json:"kind"` // stdio | http | sse
+	Command   string            `json:"command,omitempty"`
 	Args      []string          `json:"args,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
 	Disabled  bool              `json:"disabled"`
 	Connected bool              `json:"connected"`
 	Error     string            `json:"error,omitempty"`
@@ -183,7 +187,10 @@ func (m *Manager) syncOne(ctx context.Context, name string, cfg ServerConfig, sc
 }
 
 func configsEqual(a, b ServerConfig) bool {
-	if a.Command != b.Command || a.Disabled != b.Disabled || a.Type != b.Type {
+	if a.Command != b.Command || a.Disabled != b.Disabled || a.Type != b.Type || a.URL != b.URL {
+		return false
+	}
+	if a.Kind() != b.Kind() {
 		return false
 	}
 	if len(a.Args) != len(b.Args) {
@@ -194,11 +201,18 @@ func configsEqual(a, b ServerConfig) bool {
 			return false
 		}
 	}
-	if len(a.Env) != len(b.Env) {
+	if !stringMapsEqual(a.Env, b.Env) || !stringMapsEqual(a.Headers, b.Headers) {
 		return false
 	}
-	for k, v := range a.Env {
-		if b.Env[k] != v {
+	return true
+}
+
+func stringMapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
 			return false
 		}
 	}
@@ -206,17 +220,13 @@ func configsEqual(a, b ServerConfig) bool {
 }
 
 func (m *Manager) connect(ctx context.Context, name string, cfg ServerConfig) (*mcp.ClientSession, []agent.AgentTool, error) {
-	// Command lifetime is owned by the MCP session, not the Sync context.
-	cmd := exec.Command(cfg.Command, cfg.Args...)
-	cmd.Env = mergeEnv(os.Environ(), cfg.Env)
-	if m.cwd != "" {
-		cmd.Dir = m.cwd
-	}
-
 	connectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	transport := &mcp.CommandTransport{Command: cmd}
+	transport, err := buildTransport(cfg, m.cwd)
+	if err != nil {
+		return nil, nil, fmt.Errorf("connect %s: %w", name, err)
+	}
 	session, err := m.client.Connect(connectCtx, transport, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect %s: %w", name, err)
@@ -236,6 +246,59 @@ func (m *Manager) connect(ctx context.Context, name string, cfg ServerConfig) (*
 		tools = append(tools, agentTool)
 	}
 	return session, tools, nil
+}
+
+func buildTransport(cfg ServerConfig, cwd string) (mcp.Transport, error) {
+	switch cfg.Kind() {
+	case "stdio":
+		cmd := exec.Command(cfg.Command, cfg.Args...)
+		cmd.Env = mergeEnv(os.Environ(), cfg.Env)
+		if cwd != "" {
+			cmd.Dir = cwd
+		}
+		return &mcp.CommandTransport{Command: cmd}, nil
+	case "sse":
+		return &mcp.SSEClientTransport{
+			Endpoint:   cfg.URL,
+			HTTPClient: httpClientWithHeaders(cfg.Headers),
+		}, nil
+	case "http":
+		return &mcp.StreamableClientTransport{
+			Endpoint:   cfg.URL,
+			HTTPClient: httpClientWithHeaders(cfg.Headers),
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported transport %q", cfg.Type)
+	}
+}
+
+type headerRoundTripper struct {
+	base    http.RoundTripper
+	headers map[string]string
+}
+
+func (h headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	r := req.Clone(req.Context())
+	for k, v := range h.headers {
+		r.Header.Set(k, expandEnvValue(v))
+	}
+	base := h.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(r)
+}
+
+func httpClientWithHeaders(headers map[string]string) *http.Client {
+	if len(headers) == 0 {
+		return nil
+	}
+	return &http.Client{
+		Transport: headerRoundTripper{
+			base:    http.DefaultTransport,
+			headers: mapsCloneString(headers),
+		},
+	}
 }
 
 func mergeEnv(base []string, extra map[string]string) []string {
@@ -309,9 +372,12 @@ func (m *Manager) Snapshot() Status {
 		live := m.servers[name]
 		st := ServerStatus{
 			Name:     name,
+			Kind:     live.cfg.Kind(),
 			Command:  live.cfg.Command,
 			Args:     append([]string{}, live.cfg.Args...),
 			Env:      mapsCloneString(live.cfg.Env),
+			URL:      live.cfg.URL,
+			Headers:  mapsCloneString(live.cfg.Headers),
 			Disabled: live.cfg.Disabled,
 			Error:    live.err,
 			Scope:    live.scope,

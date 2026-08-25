@@ -61,6 +61,8 @@ type Props = {
   onSetModel: (provider: string, id: string) => void;
   onSetThinking: (level: string) => void;
   onSaveKey: (provider: string, key: string) => void;
+  onProvidersChanged?: () => Promise<void> | void;
+  onResend?: (rawIndex: number) => void;
   codexLogin?: CodexLoginHandlers;
   onDismissError: () => void;
 };
@@ -422,14 +424,6 @@ export function AppShell(props: Props) {
 
         {/* Main */}
         <main className="flex min-w-0 flex-1 flex-col">
-          {error && (
-            <div role="alert" className="flex items-center justify-between bg-[color-mix(in_srgb,var(--color-danger)_18%,transparent)] px-4 py-2 text-sm text-[var(--color-danger)]">
-              <span>{error}</span>
-              <button type="button" className="underline" onClick={props.onDismissError}>
-                dismiss
-              </button>
-            </div>
-          )}
           {!state.hasApiKey && (
             <button
               type="button"
@@ -453,6 +447,9 @@ export function AppShell(props: Props) {
             hasWorkspace={!!state.cwd}
             onOpenFolder={props.onOpenFolder}
             openFolderShortcut={`${shortcutPrefix}O`}
+            onResend={props.onResend}
+            lastError={error}
+            onDismissError={props.onDismissError}
           />
 
           <Composer
@@ -476,10 +473,7 @@ export function AppShell(props: Props) {
         <Stat label="total cost" value={formatCost(usage.totalCost ?? usage.cost)} accent />
         <Stat label="tok/s" value={formatRate(tokensPerSec)} />
         <span className="ml-auto truncate">{state.cwd || "open a folder to begin"}</span>
-        <MCPStatusIndicator
-          status={state.mcp}
-          onOpen={() => openSettings("mcp")}
-        />
+        <MCPStatusIndicator status={state.mcp} />
         {streaming && (
           <span className="flex items-center gap-1 text-[var(--color-accent)]">
             <Square size={10} className="animate-pulse" fill="currentColor" />
@@ -521,6 +515,7 @@ export function AppShell(props: Props) {
         <SettingsDialog
           keys={keys}
           onSave={props.onSaveKey}
+          onProvidersChanged={props.onProvidersChanged}
           onClose={() => {
             setSettingsTab("providers");
             props.onToggleSettings();
@@ -533,16 +528,11 @@ export function AppShell(props: Props) {
   );
 }
 
-function MCPStatusIndicator({
-  status,
-  onOpen,
-}: {
-  status?: MCPStatus;
-  onOpen: () => void;
-}) {
+function MCPStatusIndicator({ status }: { status?: MCPStatus }) {
   const configured = status?.configured ?? 0;
   const connected = status?.connected ?? 0;
   const failed = status?.failed ?? 0;
+  const servers = status?.servers ?? [];
   if (configured === 0) return null;
 
   const tone =
@@ -552,7 +542,7 @@ function MCPStatusIndicator({
         ? "text-[var(--color-danger)]"
         : "text-[var(--color-muted)]";
 
-  const title =
+  const label =
     connected > 0
       ? `${connected} MCP server${connected === 1 ? "" : "s"} connected`
       : failed > 0
@@ -560,16 +550,72 @@ function MCPStatusIndicator({
         : `${configured} MCP server${configured === 1 ? "" : "s"} configured`;
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title={title}
-      aria-label={title}
-      className={`flex items-center gap-1 transition hover:text-[var(--color-text)] ${tone}`}
-    >
-      <Server size={11} />
-      <span>{connected}/{configured}</span>
-    </button>
+    <div className="group relative flex items-center">
+      <span
+        className={`flex items-center gap-1 ${tone}`}
+        aria-label={label}
+      >
+        <Server size={11} />
+        <span>{connected}/{configured}</span>
+      </span>
+      <div
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 hidden w-64 rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] p-2 shadow-xl group-hover:block"
+      >
+        <p className="mb-1.5 px-1 text-[10px] font-medium tracking-wide text-[var(--color-muted)]">
+          MCP servers
+        </p>
+        <ul className="max-h-56 overflow-y-auto">
+          {servers.map((server) => {
+            const detail = server.url
+              ? server.url
+              : `${server.command || ""} ${(server.args || []).join(" ")}`.trim();
+            const stateLabel = server.disabled
+              ? "disabled"
+              : server.connected
+                ? "connected"
+                : server.error
+                  ? "error"
+                  : "idle";
+            const dot =
+              server.disabled
+                ? "bg-[var(--color-muted)]"
+                : server.connected
+                  ? "bg-emerald-400"
+                  : "bg-red-400";
+            return (
+              <li
+                key={server.name}
+                className="rounded-md px-1.5 py-1.5 hover:bg-[var(--color-panel-2)]"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                  <span className="truncate text-[11px] text-[var(--color-text)]">{server.name}</span>
+                  <span className="ml-auto shrink-0 text-[10px] text-[var(--color-muted)]">
+                    {server.kind || (server.url ? "http" : "stdio")} · {stateLabel}
+                  </span>
+                </div>
+                {detail ? (
+                  <p className="mt-0.5 truncate pl-3 font-mono text-[10px] text-[var(--color-muted)]">
+                    {detail}
+                  </p>
+                ) : null}
+                {server.connected && server.toolCount > 0 ? (
+                  <p className="mt-0.5 pl-3 text-[10px] text-[var(--color-muted)]">
+                    {server.toolCount} tool{server.toolCount === 1 ? "" : "s"}
+                  </p>
+                ) : null}
+                {server.error && !server.disabled ? (
+                  <p className="mt-0.5 truncate pl-3 text-[10px] text-[var(--color-danger)]">
+                    {server.error}
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
   );
 }
 

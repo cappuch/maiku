@@ -17,6 +17,7 @@ import {
   OpenSession,
   Prompt,
   RenameSession,
+  ResendUserMessage,
   SetAPIKey,
   SetModel,
   SetSubagentEnabled,
@@ -608,6 +609,7 @@ export default function App() {
         streamRef.current = null;
         rateSamplesRef.current = [];
         setTokensPerSec(0);
+        setError(null);
         setState((current) =>
           current
             ? { ...current, streaming: false, streamText: "", streamThinking: "" }
@@ -633,6 +635,13 @@ export default function App() {
             ? { ...current, mcp: normalizeMCP(data) }
             : current,
         );
+      }),
+      EventsOn("maiku:retry", (data) => {
+        if (!isFocused(data?.sessionId)) return;
+        const attempt = data?.attempt ?? 0;
+        const maxAttempts = data?.maxAttempts ?? 0;
+        const msg = data?.errorMessage || "Temporary error";
+        setError(`Retrying (${attempt}/${maxAttempts}): ${msg}`);
       }),
     ];
     return () => {
@@ -837,6 +846,20 @@ export default function App() {
       onToggleSidebar={() => setSidebarOpen((v) => !v)}
       onToggleSettings={() => setSettingsOpen((v) => !v)}
       onSend={onSend}
+      onResend={async (rawIndex) => {
+        setError(null);
+        setMessages((prev) => {
+          const cut = prev.findIndex((m) => m.role === "user" && m.rawIndex === rawIndex);
+          return cut >= 0 ? prev.slice(0, cut) : prev;
+        });
+        try {
+          await ResendUserMessage(rawIndex);
+          setStreaming(true);
+        } catch (resendError: unknown) {
+          setError(errorMessage(resendError));
+          void refresh();
+        }
+      }}
       onCommand={onCommand}
       onAbort={async () => {
         try {
@@ -901,6 +924,9 @@ export default function App() {
       }}
       onSaveKey={async (provider, key) => {
         await SetAPIKey(provider, key);
+        await refresh();
+      }}
+      onProvidersChanged={async () => {
         await refresh();
       }}
       codexLogin={{

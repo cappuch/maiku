@@ -77,6 +77,19 @@ type Settings struct {
 	QuietStartup        *bool                  `json:"quietStartup,omitempty"`
 	HTTPProxy           string                 `json:"httpProxy,omitempty"`
 	HTTPIdleTimeoutMs   *int                   `json:"httpIdleTimeoutMs,omitempty"`
+	// CustomProviders are user-defined OpenAI-compatible (or other) routes.
+	CustomProviders []CustomProvider `json:"customProviders,omitempty"`
+}
+
+// CustomProvider describes a user-defined model API endpoint.
+type CustomProvider struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	BaseURL string   `json:"baseUrl"`
+	// API defaults to openai-completions when empty.
+	API string `json:"api,omitempty"`
+	// Models are optional static model ids used when /models is unavailable.
+	Models []string `json:"models,omitempty"`
 }
 
 // SettingsScope identifies which settings file a value or error came from.
@@ -261,6 +274,22 @@ func (s Settings) RetryBaseDelayMs() int {
 		return *s.Retry.BaseDelayMs
 	}
 	return DefaultRetryBaseDelayMs
+}
+
+// RetryMaxDelayMs caps exponential retry backoff.
+func (s Settings) RetryMaxDelayMs() int {
+	if s.Retry != nil && s.Retry.Provider != nil && s.Retry.Provider.MaxRetryDelayMs != nil && *s.Retry.Provider.MaxRetryDelayMs > 0 {
+		return *s.Retry.Provider.MaxRetryDelayMs
+	}
+	return DefaultMaxRetryDelayMs
+}
+
+// ProviderHTTPMaxRetries is the per-request HTTP retry budget.
+func (s Settings) ProviderHTTPMaxRetries() int {
+	if s.Retry != nil && s.Retry.Provider != nil && s.Retry.Provider.MaxRetries != nil && *s.Retry.Provider.MaxRetries >= 0 {
+		return *s.Retry.Provider.MaxRetries
+	}
+	return DefaultRetryMaxRetries
 }
 
 // TransportOrDefault returns the configured transport, defaulting to "auto".

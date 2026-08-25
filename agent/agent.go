@@ -70,6 +70,7 @@ type AgentOptions struct {
 	SessionID       string
 	ThinkingBudgets *ai.ThinkingBudgets
 	Transport       ai.Transport
+	MaxRetries      *int
 	MaxRetryDelayMs *int
 	ToolExecution   ToolExecutionMode
 }
@@ -185,6 +186,7 @@ type Agent struct {
 	SessionID       string
 	ThinkingBudgets *ai.ThinkingBudgets
 	Transport       ai.Transport
+	MaxRetries      *int
 	MaxRetryDelayMs *int
 	ToolExecution   ToolExecutionMode
 }
@@ -215,6 +217,7 @@ func NewAgent(options AgentOptions) *Agent {
 		SessionID:       options.SessionID,
 		ThinkingBudgets: options.ThinkingBudgets,
 		Transport:       options.Transport,
+		MaxRetries:      options.MaxRetries,
 		MaxRetryDelayMs: options.MaxRetryDelayMs,
 		ToolExecution:   orDefaultToolExecution(options.ToolExecution),
 	}
@@ -571,6 +574,7 @@ func (a *Agent) createLoopConfig(skipInitialSteeringPoll bool) AgentLoopConfig {
 	config.SessionID = a.SessionID
 	config.Transport = a.Transport
 	config.ThinkingBudgets = a.ThinkingBudgets
+	config.MaxRetries = a.MaxRetries
 	config.MaxRetryDelayMs = a.MaxRetryDelayMs
 	config.OnPayload = a.OnPayload
 	config.OnResponse = a.OnResponse

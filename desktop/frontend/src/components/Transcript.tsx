@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ArrowDown, Check, Copy, FolderOpen } from "lucide-react";
+import { ArrowDown, Check, Copy, FolderOpen, RotateCcw } from "lucide-react";
 import type { UIMessage } from "../types";
 import { Markdown, copyText } from "./Markdown";
 import { ThinkingLive } from "./ThinkingLive";
@@ -22,6 +22,9 @@ export function Transcript({
   hasWorkspace = true,
   onOpenFolder,
   openFolderShortcut = "⌘O",
+  onResend,
+  lastError,
+  onDismissError,
 }: {
   messages: UIMessage[];
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -34,6 +37,9 @@ export function Transcript({
   hasWorkspace?: boolean;
   onOpenFolder?: () => void;
   openFolderShortcut?: string;
+  onResend?: (rawIndex: number) => void;
+  lastError?: string | null;
+  onDismissError?: () => void;
 }) {
   const [showJump, setShowJump] = useState(false);
   const [completionAnnouncement, setCompletionAnnouncement] = useState("");
@@ -130,11 +136,13 @@ export function Transcript({
   // Reuse the historical element tree instead of remapping a long transcript
   // for every generated chunk.
   const renderedMessages = useMemo(() => {
-    const render = (items: UIMessage[], offset: number) =>
-      items.map((message, index) => (
+      const render = (items: UIMessage[], offset: number) =>
+        items.map((message, index) => (
         <MessageRow
           key={message.id || (message.toolCallId ? `tool-${message.toolCallId}` : `${message.role}-${offset + index}`)}
           message={message}
+          onResend={onResend}
+          canResend={!streaming && typeof message.rawIndex === "number"}
         />
       ));
     const visibleActivityStart = Math.max(visibleStart, liveActivityStart);
@@ -142,7 +150,7 @@ export function Transcript({
       before: render(messages.slice(visibleStart, visibleActivityStart), visibleStart),
       after: render(messages.slice(visibleActivityStart), visibleActivityStart),
     };
-  }, [messages, liveActivityStart, visibleStart]);
+  }, [messages, liveActivityStart, visibleStart, onResend, streaming]);
 
   const isEmpty = messages.length === 0 && !showThinking && !showStream && !streaming;
 
@@ -199,6 +207,16 @@ export function Transcript({
             </div>
           )}
           {renderedMessages.after}
+          {lastError ? (
+            <div role="alert" className="flex items-start justify-between gap-3 px-1 text-sm text-[var(--color-danger)]">
+              <p className="min-w-0 flex-1 whitespace-pre-wrap">{lastError}</p>
+              {onDismissError ? (
+                <button type="button" className="shrink-0 underline" onClick={onDismissError}>
+                  dismiss
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -217,7 +235,15 @@ export function Transcript({
   );
 }
 
-const MessageRow = memo(function MessageRow({ message }: { message: UIMessage }) {
+const MessageRow = memo(function MessageRow({
+  message,
+  onResend,
+  canResend,
+}: {
+  message: UIMessage;
+  onResend?: (rawIndex: number) => void;
+  canResend?: boolean;
+}) {
   let content: ReactNode;
   if (message.role === "notice") {
     content = (
@@ -229,7 +255,7 @@ const MessageRow = memo(function MessageRow({ message }: { message: UIMessage })
     );
   } else if (message.role === "user") {
     content = (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-1.5">
         <div className="user-message max-w-[85%] space-y-2 px-4 py-2.5 text-sm leading-relaxed">
           {message.images && message.images.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -246,10 +272,30 @@ const MessageRow = memo(function MessageRow({ message }: { message: UIMessage })
           )}
           {message.text ? <div className="whitespace-pre-wrap">{message.text}</div> : null}
         </div>
+        {canResend && typeof message.rawIndex === "number" && onResend ? (
+          <button
+            type="button"
+            onClick={() => onResend(message.rawIndex!)}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--color-muted)] transition hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"
+            title="Resend"
+            aria-label="Resend message"
+          >
+            <RotateCcw size={11} />
+            Resend
+          </button>
+        ) : null}
       </div>
     );
   } else if (message.role === "tool" || message.role === "toolResult") {
     content = <ToolCallCard message={message} />;
+  } else if (message.isError) {
+    content = (
+      <div className="flex justify-start">
+        <div className="w-full max-w-[90%] rounded-lg border border-[color-mix(in_srgb,var(--color-danger)_35%,transparent)] bg-[color-mix(in_srgb,var(--color-danger)_10%,transparent)] px-3 py-2 text-sm text-[var(--color-danger)]">
+          {message.text || "Request failed"}
+        </div>
+      </div>
+    );
   } else {
     content = (
       <>

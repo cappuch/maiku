@@ -19,29 +19,66 @@ type File struct {
 	MCPServers map[string]ServerConfig `json:"mcpServers"`
 }
 
-// ServerConfig describes a single stdio MCP server.
+// ServerConfig describes a single MCP server (stdio or HTTP).
 type ServerConfig struct {
-	// Command is the executable to launch (required for stdio).
-	Command string `json:"command"`
-	// Args are passed to Command.
+	// Command is the executable to launch (stdio).
+	Command string `json:"command,omitempty"`
+	// Args are passed to Command (stdio).
 	Args []string `json:"args,omitempty"`
-	// Env are extra environment variables for the server process.
+	// Env are extra environment variables for the server process (stdio).
 	Env map[string]string `json:"env,omitempty"`
-	// Type is optional; "stdio" (or empty) is supported. Other types are ignored.
+	// URL is the remote endpoint (HTTP / SSE / streamable HTTP).
+	URL string `json:"url,omitempty"`
+	// Headers are extra HTTP headers for remote servers.
+	Headers map[string]string `json:"headers,omitempty"`
+	// Type selects the transport: "stdio" (default when command set),
+	// "http" / "streamable-http" (default when url set), or "sse".
 	Type string `json:"type,omitempty"`
 	// Disabled skips connecting when true.
 	Disabled bool `json:"disabled,omitempty"`
 }
 
+// Kind returns the normalized transport kind: "stdio", "http", or "sse".
+func (c ServerConfig) Kind() string {
+	t := strings.ToLower(strings.TrimSpace(c.Type))
+	switch t {
+	case "sse":
+		return "sse"
+	case "http", "streamable-http", "streamable_http", "streamable":
+		return "http"
+	case "stdio":
+		return "stdio"
+	}
+	if strings.TrimSpace(c.URL) != "" {
+		return "http"
+	}
+	return "stdio"
+}
+
 // IsStdio reports whether this entry should be launched as a local stdio server.
 func (c ServerConfig) IsStdio() bool {
-	t := strings.ToLower(strings.TrimSpace(c.Type))
-	return t == "" || t == "stdio"
+	return c.Kind() == "stdio"
+}
+
+// IsRemote reports whether this entry connects over HTTP/SSE.
+func (c ServerConfig) IsRemote() bool {
+	k := c.Kind()
+	return k == "http" || k == "sse"
 }
 
 // Enabled reports whether the server should be connected.
 func (c ServerConfig) Enabled() bool {
-	return !c.Disabled && c.IsStdio() && strings.TrimSpace(c.Command) != ""
+	if c.Disabled {
+		return false
+	}
+	switch c.Kind() {
+	case "stdio":
+		return strings.TrimSpace(c.Command) != ""
+	case "http", "sse":
+		return strings.TrimSpace(c.URL) != ""
+	default:
+		return false
+	}
 }
 
 // GlobalPath returns ~/.maiku/agent/mcp.json.
@@ -119,8 +156,31 @@ func UpsertGlobal(agentDir, name string, cfg ServerConfig) error {
 	if name == "" {
 		return errors.New("server name is required")
 	}
-	if strings.TrimSpace(cfg.Command) == "" {
-		return errors.New("command is required")
+	cfg.Command = strings.TrimSpace(cfg.Command)
+	cfg.URL = strings.TrimSpace(cfg.URL)
+	kind := cfg.Kind()
+	switch kind {
+	case "stdio":
+		if cfg.Command == "" {
+			return errors.New("command is required for stdio servers")
+		}
+		cfg.Type = "stdio"
+		cfg.URL = ""
+		cfg.Headers = nil
+	case "http", "sse":
+		if cfg.URL == "" {
+			return errors.New("url is required for HTTP servers")
+		}
+		if kind == "sse" {
+			cfg.Type = "sse"
+		} else {
+			cfg.Type = "http"
+		}
+		cfg.Command = ""
+		cfg.Args = nil
+		cfg.Env = nil
+	default:
+		return fmt.Errorf("unsupported MCP transport %q", cfg.Type)
 	}
 	path := GlobalPath(agentDir)
 	file, err := readFile(path)

@@ -36,15 +36,36 @@ func CachedRemoteModels(providerID string) []ai.Model {
 }
 
 // RefreshProviderModels fetches the provider's /models route and caches it.
-// Failures leave the previous cache (if any) intact.
+// Failures leave the previous cache (if any) intact. Custom providers with a
+// static model list fall back to that list when /models is unavailable.
 func RefreshProviderModels(ctx context.Context, providerID string) error {
-	provider, ok := providers.Find(providerID)
-	if !ok {
-		return fmt.Errorf("unknown provider %q", providerID)
+	var provider providers.Provider
+	var custom CustomProvider
+	var isCustom bool
+	if builtin, ok := providers.Find(providerID); ok {
+		provider = builtin
+	} else {
+		for _, c := range LoadCustomProviders("") {
+			if c.ID == providerID {
+				custom = c
+				provider = CustomProviderAsRegistry(c)
+				isCustom = true
+				break
+			}
+		}
+		if provider.ID == "" {
+			return fmt.Errorf("unknown provider %q", providerID)
+		}
 	}
 	apiKey := auth.ResolveAPIKey(providerID)
 	models, err := FetchProviderModels(ctx, provider, apiKey)
 	if err != nil {
+		if isCustom && len(custom.Models) > 0 {
+			remoteModelsMu.Lock()
+			remoteModels[providerID] = StaticModelsFromCustom(custom)
+			remoteModelsMu.Unlock()
+			return nil
+		}
 		return err
 	}
 	remoteModelsMu.Lock()
@@ -55,12 +76,23 @@ func RefreshProviderModels(ctx context.Context, providerID string) error {
 
 // ProviderWithModels returns the provider metadata with its fetched catalog.
 func ProviderWithModels(providerID string) (providers.Provider, bool) {
-	provider, ok := providers.Find(providerID)
-	if !ok {
-		return providers.Provider{}, false
+	if provider, ok := providers.Find(providerID); ok {
+		provider.Models = CachedRemoteModels(providerID)
+		return provider, true
 	}
-	provider.Models = CachedRemoteModels(providerID)
-	return provider, true
+	for _, custom := range LoadCustomProviders("") {
+		if custom.ID != providerID {
+			continue
+		}
+		provider := CustomProviderAsRegistry(custom)
+		models := CachedRemoteModels(providerID)
+		if len(models) == 0 {
+			models = StaticModelsFromCustom(custom)
+		}
+		provider.Models = models
+		return provider, true
+	}
+	return providers.Provider{}, false
 }
 
 // FetchProviderModels hits the provider's models listing endpoint and maps

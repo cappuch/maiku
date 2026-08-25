@@ -42,6 +42,10 @@ export function ListAPIKeys() {
   return window['go']['main']['App']['ListAPIKeys']();
 }
 
+export function ListCustomProviders() {
+  return window['go']['main']['App']['ListCustomProviders']();
+}
+
 export function ListMCPServers() {
   return window['go']['main']['App']['ListMCPServers']();
 }
@@ -86,12 +90,20 @@ export function ReloadMCP() {
   return window['go']['main']['App']['ReloadMCP']();
 }
 
+export function RemoveCustomProvider(arg1) {
+  return window['go']['main']['App']['RemoveCustomProvider'](arg1);
+}
+
 export function RemoveMCPServer(arg1) {
   return window['go']['main']['App']['RemoveMCPServer'](arg1);
 }
 
 export function RenameSession(arg1, arg2) {
   return window['go']['main']['App']['RenameSession'](arg1, arg2);
+}
+
+export function ResendUserMessage(arg1) {
+  return window['go']['main']['App']['ResendUserMessage'](arg1);
 }
 
 export function SetAPIKey(arg1, arg2) {
@@ -112,6 +124,10 @@ export function SetSubagentEnabled(arg1) {
 
 export function SetThinking(arg1) {
   return window['go']['main']['App']['SetThinking'](arg1);
+}
+
+export function UpsertCustomProvider(arg1) {
+  return window['go']['main']['App']['UpsertCustomProvider'](arg1);
 }
 
 export function UpsertMCPServer(arg1) {

@@ -2,13 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Code2, KeyRound, Plus, RefreshCw, Search, Server, Trash2, X } from "lucide-react";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import {
+  ListCustomProviders,
   ListMCPServers,
   ReloadMCP,
+  RemoveCustomProvider,
   RemoveMCPServer,
   SetMCPServerEnabled,
+  UpsertCustomProvider,
   UpsertMCPServer,
 } from "../../wailsjs/go/main/App";
-import type { APIKeyStatus, MCPServerStatus } from "../types";
+import type { APIKeyStatus, CustomProvider, MCPServerStatus } from "../types";
 
 export type CodexLoginHandlers = {
   begin: () => Promise<{ userCode: string; verificationUri: string }>;
@@ -22,12 +25,14 @@ export function SettingsDialog({
   keys,
   onSave,
   onClose,
+  onProvidersChanged,
   codexLogin,
   initialTab = "providers",
 }: {
   keys: APIKeyStatus[];
   onSave: (provider: string, key: string) => Promise<void> | void;
   onClose: () => void;
+  onProvidersChanged?: () => Promise<void> | void;
   codexLogin?: CodexLoginHandlers;
   initialTab?: SettingsTab;
 }) {
@@ -197,6 +202,7 @@ export function SettingsDialog({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
           <div className="mx-auto w-full max-w-4xl space-y-3 pb-8">
+            <CustomProvidersPanel onChanged={() => { void onProvidersChanged?.(); }} />
             {filtered.length === 0 && (
               <p className="py-6 text-center text-xs text-[var(--color-muted)]">
                 No providers match “{query.trim()}”
@@ -384,17 +390,180 @@ export function SettingsDialog({
   );
 }
 
+function CustomProvidersPanel({ onChanged }: { onChanged?: () => void }) {
+  const [custom, setCustom] = useState<CustomProvider[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [id, setId] = useState("");
+  const [name, setName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [modelsText, setModelsText] = useState("");
+
+  const refresh = async () => {
+    try {
+      const list = await ListCustomProviders();
+      setCustom(list ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const resetForm = () => {
+    setShowForm(false);
+    setId("");
+    setName("");
+    setBaseUrl("");
+    setModelsText("");
+  };
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await UpsertCustomProvider({
+        id: id.trim(),
+        name: name.trim() || id.trim(),
+        baseUrl: baseUrl.trim(),
+        api: "openai-completions",
+        models: modelsText
+          .split(/[,\n]/)
+          .map((m) => m.trim())
+          .filter(Boolean),
+      });
+      resetForm();
+      await refresh();
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mb-6 rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-xs font-semibold">Custom OpenAI-compatible routes</h4>
+          <p className="mt-1 text-[11px] leading-5 text-[var(--color-muted)]">
+            Point maiku at any OpenAI-compatible <span className="font-mono">/v1</span> endpoint (Ollama, vLLM, LiteLLM, etc).
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowForm(true)}
+          className="flex items-center gap-1 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-ink)]"
+        >
+          <Plus size={12} />
+          Add route
+        </button>
+      </div>
+
+      {error ? <p role="alert" className="mb-2 text-[11px] text-[var(--color-danger)]">{error}</p> : null}
+
+      {showForm ? (
+        <div className="mb-3 grid gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] p-3">
+          <input
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+            placeholder="id (e.g. ollama)"
+            className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1.5 font-mono text-xs outline-none focus:border-[var(--color-accent-dim)]"
+          />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Display name"
+            className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--color-accent-dim)]"
+          />
+          <input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://localhost:11434/v1"
+            className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1.5 font-mono text-xs outline-none focus:border-[var(--color-accent-dim)]"
+          />
+          <input
+            value={modelsText}
+            onChange={(e) => setModelsText(e.target.value)}
+            placeholder="Optional model ids (comma-separated)"
+            className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1.5 font-mono text-xs outline-none focus:border-[var(--color-accent-dim)]"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void save()}
+              className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-ink)] disabled:opacity-40"
+            >
+              {busy ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={resetForm}
+              className="rounded-md border border-[var(--color-line)] px-3 py-1.5 text-[11px] text-[var(--color-muted)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {custom.length === 0 ? (
+        <p className="text-[11px] text-[var(--color-muted)]">No custom routes yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {custom.map((provider) => (
+            <li key={provider.id} className="flex items-start justify-between gap-3 rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2">
+              <div className="min-w-0">
+                <div className="text-xs font-medium">{provider.name || provider.id}</div>
+                <div className="mt-0.5 truncate font-mono text-[10px] text-[var(--color-muted)]">{provider.baseUrl}</div>
+                {provider.models?.length ? (
+                  <div className="mt-0.5 text-[10px] text-[var(--color-muted)]">{provider.models.join(", ")}</div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => void (async () => {
+                  try {
+                    await RemoveCustomProvider(provider.id);
+                    await refresh();
+                    onChanged?.();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : String(err));
+                  }
+                })()}
+                className="rounded-md border border-[var(--color-line)] p-1.5 text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                aria-label={`Remove ${provider.id}`}
+              >
+                <Trash2 size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function MCPSettingsPane() {
   const [servers, setServers] = useState<MCPServerStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [subtab, setSubtab] = useState<"stdio" | "http">("stdio");
   const [showForm, setShowForm] = useState(false);
   const [editName, setEditName] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
   const [argsText, setArgsText] = useState("");
   const [envText, setEnvText] = useState("");
+  const [url, setUrl] = useState("");
+  const [headersText, setHeadersText] = useState("");
+  const [httpKind, setHttpKind] = useState<"http" | "sse">("http");
 
   const refresh = async () => {
     setLoading(true);
@@ -413,6 +582,13 @@ function MCPSettingsPane() {
     void refresh();
   }, []);
 
+  const isRemote = (server: MCPServerStatus) => {
+    const kind = (server.kind || "").toLowerCase();
+    return kind === "http" || kind === "sse" || !!server.url;
+  };
+
+  const visible = servers.filter((s) => (subtab === "http" ? isRemote(s) : !isRemote(s)));
+
   const resetForm = () => {
     setShowForm(false);
     setEditName(null);
@@ -420,18 +596,43 @@ function MCPSettingsPane() {
     setCommand("");
     setArgsText("");
     setEnvText("");
+    setUrl("");
+    setHeadersText("");
+    setHttpKind("http");
+  };
+
+  const openAdd = () => {
+    resetForm();
+    setShowForm(true);
   };
 
   const openEdit = (server: MCPServerStatus) => {
     setEditName(server.name);
     setName(server.name);
-    setCommand(server.command || "");
-    setArgsText((server.args || []).join(" "));
-    setEnvText(
-      Object.entries(server.env || {})
-        .map(([k, v]) => `${k}=${v}`)
-        .join("\n"),
-    );
+    if (isRemote(server)) {
+      setSubtab("http");
+      setUrl(server.url || "");
+      setHttpKind(server.kind === "sse" ? "sse" : "http");
+      setHeadersText(
+        Object.entries(server.headers || {})
+          .map(([k, v]) => `${k}=${v}`)
+          .join("\n"),
+      );
+      setCommand("");
+      setArgsText("");
+      setEnvText("");
+    } else {
+      setSubtab("stdio");
+      setCommand(server.command || "");
+      setArgsText((server.args || []).join(" "));
+      setEnvText(
+        Object.entries(server.env || {})
+          .map(([k, v]) => `${k}=${v}`)
+          .join("\n"),
+      );
+      setUrl("");
+      setHeadersText("");
+    }
     setShowForm(true);
   };
 
@@ -441,38 +642,59 @@ function MCPSettingsPane() {
       .split(/\s+/)
       .filter(Boolean);
 
-  const parseEnv = (text: string) => {
-    const env: Record<string, string> = {};
+  const parseKV = (text: string) => {
+    const out: Record<string, string> = {};
     for (const line of text.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
       const eq = trimmed.indexOf("=");
       if (eq <= 0) continue;
-      env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1);
+      out[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1);
     }
-    return env;
+    return out;
   };
 
   const saveServer = async () => {
     const serverName = name.trim();
-    const cmd = command.trim();
-    if (!serverName || !cmd) {
-      setError("Name and command are required");
+    if (!serverName) {
+      setError("Name is required");
       return;
     }
+    if (subtab === "stdio") {
+      const cmd = command.trim();
+      if (!cmd) {
+        setError("Command is required");
+        return;
+      }
+    } else if (!url.trim()) {
+      setError("URL is required");
+      return;
+    }
+
     setBusy("save");
     setError(null);
     try {
       if (editName && editName !== serverName) {
         await RemoveMCPServer(editName);
       }
-      await UpsertMCPServer({
-        name: serverName,
-        command: cmd,
-        args: parseArgs(argsText),
-        env: parseEnv(envText),
-        disabled: false,
-      });
+      if (subtab === "stdio") {
+        await UpsertMCPServer({
+          name: serverName,
+          kind: "stdio",
+          command: command.trim(),
+          args: parseArgs(argsText),
+          env: parseKV(envText),
+          disabled: false,
+        });
+      } else {
+        await UpsertMCPServer({
+          name: serverName,
+          kind: httpKind,
+          url: url.trim(),
+          headers: parseKV(headersText),
+          disabled: false,
+        });
+      }
       resetForm();
       await refresh();
     } catch (err) {
@@ -482,10 +704,27 @@ function MCPSettingsPane() {
     }
   };
 
+  const subtabBtn = (id: "stdio" | "http", label: string) => (
+    <button
+      type="button"
+      onClick={() => {
+        setSubtab(id);
+        resetForm();
+      }}
+      className={`rounded-md px-3 py-1.5 text-[11px] font-medium transition ${
+        subtab === id
+          ? "bg-[var(--color-panel-2)] text-[var(--color-text)]"
+          : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-6">
       <div className="mx-auto max-w-3xl">
-        <div className="mb-6 flex items-start justify-between gap-4">
+        <div className="mb-4 flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className="rounded-lg bg-[var(--color-panel-2)] p-2 text-[var(--color-accent)]">
               <Server size={18} />
@@ -493,7 +732,7 @@ function MCPSettingsPane() {
             <div>
               <h3 className="text-sm font-semibold">MCP servers</h3>
               <p className="mt-1 text-xs leading-5 text-[var(--color-muted)]">
-                Hook up Model Context Protocol servers over stdio. Tools are exposed as{" "}
+                Hook up Model Context Protocol servers. Tools are exposed as{" "}
                 <span className="font-mono">mcp__name__tool</span>. Config lives in{" "}
                 <span className="font-mono">~/.maiku/agent/mcp.json</span>.
               </p>
@@ -521,16 +760,18 @@ function MCPSettingsPane() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                resetForm();
-                setShowForm(true);
-              }}
+              onClick={openAdd}
               className="flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)] px-3 py-2 text-xs font-medium text-[var(--color-ink)]"
             >
               <Plus size={12} />
-              Add server
+              Add {subtab === "http" ? "HTTP" : "stdio"}
             </button>
           </div>
+        </div>
+
+        <div className="mb-5 inline-flex rounded-lg border border-[var(--color-line)] p-0.5">
+          {subtabBtn("stdio", "stdio")}
+          {subtabBtn("http", "HTTP")}
         </div>
 
         {error ? (
@@ -539,7 +780,9 @@ function MCPSettingsPane() {
 
         {showForm ? (
           <div className="mb-6 rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
-            <h4 className="mb-3 text-xs font-semibold">{editName ? `Edit ${editName}` : "New MCP server"}</h4>
+            <h4 className="mb-3 text-xs font-semibold">
+              {editName ? `Edit ${editName}` : subtab === "http" ? "New HTTP server" : "New stdio server"}
+            </h4>
             <div className="grid gap-3">
               <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
                 Name
@@ -547,38 +790,75 @@ function MCPSettingsPane() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   disabled={!!editName}
-                  placeholder="filesystem"
+                  placeholder={subtab === "http" ? "remote-api" : "filesystem"}
                   className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
                 />
               </label>
-              <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
-                Command
-                <input
-                  value={command}
-                  onChange={(e) => setCommand(e.target.value)}
-                  placeholder="npx"
-                  className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
-                />
-              </label>
-              <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
-                Args (space-separated)
-                <input
-                  value={argsText}
-                  onChange={(e) => setArgsText(e.target.value)}
-                  placeholder="-y @modelcontextprotocol/server-filesystem /path"
-                  className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
-                />
-              </label>
-              <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
-                Env (KEY=value per line)
-                <textarea
-                  value={envText}
-                  onChange={(e) => setEnvText(e.target.value)}
-                  rows={3}
-                  placeholder={"API_KEY=${MY_KEY}"}
-                  className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
-                />
-              </label>
+              {subtab === "stdio" ? (
+                <>
+                  <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+                    Command
+                    <input
+                      value={command}
+                      onChange={(e) => setCommand(e.target.value)}
+                      placeholder="npx"
+                      className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+                    Args (space-separated)
+                    <input
+                      value={argsText}
+                      onChange={(e) => setArgsText(e.target.value)}
+                      placeholder="-y @modelcontextprotocol/server-filesystem /path"
+                      className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+                    Env (KEY=value per line)
+                    <textarea
+                      value={envText}
+                      onChange={(e) => setEnvText(e.target.value)}
+                      rows={3}
+                      placeholder={"API_KEY=${MY_KEY}"}
+                      className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
+                    />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+                    Transport
+                    <select
+                      value={httpKind}
+                      onChange={(e) => setHttpKind(e.target.value === "sse" ? "sse" : "http")}
+                      className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
+                    >
+                      <option value="http">Streamable HTTP</option>
+                      <option value="sse">SSE (legacy)</option>
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+                    URL
+                    <input
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      placeholder="https://example.com/mcp"
+                      className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+                    Headers (Header=value per line)
+                    <textarea
+                      value={headersText}
+                      onChange={(e) => setHeadersText(e.target.value)}
+                      rows={3}
+                      placeholder={"Authorization=Bearer ${TOKEN}"}
+                      className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent-dim)]"
+                    />
+                  </label>
+                </>
+              )}
             </div>
             <div className="mt-4 flex gap-2">
               <button
@@ -602,11 +882,13 @@ function MCPSettingsPane() {
 
         {loading ? (
           <p className="text-xs text-[var(--color-muted)]">Loading…</p>
-        ) : servers.length === 0 ? (
-          <p className="text-xs text-[var(--color-muted)]">No MCP servers configured yet.</p>
+        ) : visible.length === 0 ? (
+          <p className="text-xs text-[var(--color-muted)]">
+            No {subtab === "http" ? "HTTP" : "stdio"} MCP servers configured yet.
+          </p>
         ) : (
           <div className="flex flex-col gap-3">
-            {servers.map((server) => (
+            {visible.map((server) => (
               <div key={server.name} className="rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -623,10 +905,14 @@ function MCPSettingsPane() {
                       >
                         {server.disabled ? "Disabled" : server.connected ? "Connected" : "Error"}
                       </span>
-                      <span className="text-[10px] text-[var(--color-muted)]">{server.scope}</span>
+                      <span className="text-[10px] text-[var(--color-muted)]">
+                        {server.kind || (isRemote(server) ? "http" : "stdio")} · {server.scope}
+                      </span>
                     </div>
                     <p className="mt-1 truncate font-mono text-[10px] text-[var(--color-muted)]">
-                      {server.command} {(server.args || []).join(" ")}
+                      {isRemote(server)
+                        ? server.url
+                        : `${server.command || ""} ${(server.args || []).join(" ")}`.trim()}
                     </p>
                     {server.connected ? (
                       <p className="mt-1 text-[10px] text-[var(--color-muted)]">

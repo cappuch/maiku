@@ -145,6 +145,15 @@ func NewAgentSession(options AgentSessionOptions) *AgentSession {
 		sessionID = options.Sessions.Header().ID
 	}
 
+	maxRetries := options.Retry.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = DefaultRetryMaxRetries
+	}
+	maxDelay := options.Retry.MaxDelayMs
+	if maxDelay <= 0 {
+		maxDelay = DefaultMaxRetryDelayMs
+	}
+
 	a := agent.NewAgent(agent.AgentOptions{
 		InitialState: &agent.AgentInitialState{
 			SystemPrompt:  options.SystemPrompt,
@@ -164,7 +173,9 @@ func NewAgentSession(options AgentSessionOptions) *AgentSession {
 			}
 			return "", fmt.Errorf("no API key for provider %q; pass --api-key or set the provider environment variable", provider)
 		},
-		SessionID: sessionID,
+		SessionID:       sessionID,
+		MaxRetries:      &maxRetries,
+		MaxRetryDelayMs: &maxDelay,
 	})
 
 	s := &AgentSession{
@@ -267,6 +278,11 @@ func (s *AgentSession) maybeRetry(ctx context.Context) error {
 		}
 
 		delayMs := baseDelay * (1 << (attempt - 1))
+		maxDelay := policy.MaxDelayMs
+		if maxDelay <= 0 {
+			maxDelay = 60000
+		}
+		delayMs = ai.CapDelayMs(delayMs, maxDelay)
 		if s.onRetry != nil {
 			s.onRetry(attempt, policy.MaxRetries, delayMs, assistant.ErrorMessage)
 		}

@@ -468,3 +468,76 @@ func (s *SessionManager) AppendMessage(message ai.Message) (returnErr error) {
 	_, err = file.Write(append(entryLine, '\n'))
 	return err
 }
+
+// ReplaceMessages replaces the in-memory transcript and rewrites the session
+// file. Used for resend / truncate flows.
+func (s *SessionManager) ReplaceMessages(messages []ai.Message) (returnErr error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	copied := append([]ai.Message{}, messages...)
+	s.messages = copied
+	s.leafID = ""
+
+	if !s.persist || s.file == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(s.file), 0o755); err != nil {
+		return err
+	}
+
+	tmp := s.file + ".tmp"
+	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeErr := file.Close()
+		if returnErr == nil {
+			returnErr = closeErr
+		}
+		if returnErr == nil {
+			returnErr = os.Rename(tmp, s.file)
+		} else {
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	headerLine, err := json.Marshal(s.header)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(append(headerLine, '\n')); err != nil {
+		return err
+	}
+	s.headerWritten = true
+
+	var parent *string
+	for _, message := range copied {
+		encoded, err := EncodeMessage(message)
+		if err != nil {
+			return err
+		}
+		entry := SessionEntry{
+			Type:      "message",
+			ID:        ai.UUIDv7(),
+			Timestamp: nowISO(),
+			Message:   encoded,
+		}
+		if parent != nil {
+			p := *parent
+			entry.ParentID = &p
+		}
+		s.leafID = entry.ID
+		id := entry.ID
+		parent = &id
+		entryLine, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		if _, err := file.Write(append(entryLine, '\n')); err != nil {
+			return err
+		}
+	}
+	return nil
+}

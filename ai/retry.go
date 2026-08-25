@@ -16,6 +16,8 @@ type RetryPolicy struct {
 	Enabled     bool
 	MaxRetries  int
 	BaseDelayMs int
+	// MaxDelayMs caps exponential backoff. Zero uses DefaultMaxRetryDelayMs.
+	MaxDelayMs int
 }
 
 // IsRetryableAssistantError classifies transient provider/transport errors.
@@ -91,6 +93,11 @@ func RetryAssistantCall(
 			lastRetryError = "Unknown error"
 		}
 		delayMs := baseDelay * (1 << (attempt - 1))
+		maxDelay := 60000
+		if policy != nil && policy.MaxDelayMs > 0 {
+			maxDelay = policy.MaxDelayMs
+		}
+		delayMs = CapDelayMs(delayMs, maxDelay)
 		if callbacks != nil && callbacks.OnRetryScheduled != nil {
 			callbacks.OnRetryScheduled(attempt, maxAttempts, delayMs, lastRetryError)
 		}

@@ -24,6 +24,8 @@ export function Goal(arg1:string):Promise<void>;
 
 export function ListAPIKeys():Promise<Array<main.APIKeyStatus>>;
 
+export function ListCustomProviders():Promise<Array<core.CustomProvider>>;
+
 export function ListMCPServers():Promise<Array<mcp.ServerStatus>>;
 
 export function ListModels():Promise<Array<main.ModelInfo>>;
@@ -46,9 +48,13 @@ export function RecentDirs():Promise<Array<string>>;
 
 export function ReloadMCP():Promise<void>;
 
+export function RemoveCustomProvider(arg1:string):Promise<void>;
+
 export function RemoveMCPServer(arg1:string):Promise<void>;
 
 export function RenameSession(arg1:string,arg2:string):Promise<void>;
+
+export function ResendUserMessage(arg1:number):Promise<void>;
 
 export function SetAPIKey(arg1:string,arg2:string):Promise<void>;
 
@@ -59,5 +65,7 @@ export function SetModel(arg1:string,arg2:string):Promise<void>;
 export function SetSubagentEnabled(arg1:boolean):Promise<void>;
 
 export function SetThinking(arg1:string):Promise<void>;
+
+export function UpsertCustomProvider(arg1:core.CustomProvider):Promise<void>;
 
 export function UpsertMCPServer(arg1:main.MCPServerInput):Promise<void>;
