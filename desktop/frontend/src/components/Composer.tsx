@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
-import { AtSign, Command, Loader2, Paperclip, Send, Square, X } from "lucide-react";
+import { AtSign, Command, Loader2, ListOrdered, Paperclip, Send, Square, X } from "lucide-react";
 import { CompletePath, PickFiles } from "../../wailsjs/go/main/App";
-import type { ImageAttachment, PathSuggestion } from "../types";
+import type { ImageAttachment, QueuedMessage, PathSuggestion } from "../types";
 
 export type ComposerAttachment = ImageAttachment & { id: string };
 
@@ -122,18 +122,33 @@ async function fileToAttachment(file: File): Promise<ComposerAttachment | null> 
   };
 }
 
+function queuePreview(item: QueuedMessage) {
+  const text = item.text.trim();
+  if (text) return text;
+  if (item.images.length > 0) {
+    return item.images.length === 1 ? "(image)" : `(${item.images.length} images)`;
+  }
+  return "(empty)";
+}
+
 export function Composer({
   draftKey,
   streaming,
   disabled,
+  queue,
   onSend,
+  onRemoveQueued,
+  onClearQueue,
   onCommand,
   onAbort,
 }: {
   draftKey: string;
   streaming: boolean;
   disabled?: boolean;
+  queue: QueuedMessage[];
   onSend: (text: string, images: ImageAttachment[]) => Promise<boolean>;
+  onRemoveQueued: (id: string) => void;
+  onClearQueue: () => void;
   onCommand: (command: string) => void;
   onAbort: () => Promise<boolean>;
 }) {
@@ -276,7 +291,7 @@ export function Composer({
   };
 
   const onPickFiles = async () => {
-    if (disabled || streaming) return;
+    if (disabled) return;
     try {
       const picked = (await PickFiles()) || [];
       setAttachmentError(null);
@@ -316,12 +331,16 @@ export function Composer({
   const submit = async () => {
     const draftValue = value;
     const text = draftValue.trim();
-    if ((!text && attachments.length === 0) || streaming || submitting || disabled) return;
+    if ((!text && attachments.length === 0) || submitting || disabled) return;
     const command = knownCommand(text);
     const normalized = normalizeCommand(text);
     const isSettingsCommand = normalized === "/settings" || normalized.startsWith("/settings ");
     const isGoalCommand = normalized === "/goal" || normalized.startsWith("/goal ");
     if (command || isSettingsCommand || isGoalCommand) {
+      if (streaming) {
+        setAttachmentError("Commands run when maiku is idle — they can't be queued");
+        return;
+      }
       setValue("");
       writeDraft(draftKey, "");
       setAttachments([]);
@@ -375,6 +394,39 @@ export function Composer({
   return (
     <div className="composer-dock relative z-30 px-5 pt-3 pb-4">
       <div className="relative mx-auto max-w-[760px]">
+        {queue.length > 0 && (
+          <div className="composer-queue mb-2" aria-label="Queued messages">
+            <div className="composer-queue-header">
+              <span className="flex items-center gap-1.5">
+                <ListOrdered size={12} />
+                {queue.length} queued
+              </span>
+              <button type="button" onClick={onClearQueue} className="composer-queue-clear">
+                Clear
+              </button>
+            </div>
+            <ul className="composer-queue-list">
+              {queue.map((item, index) => (
+                <li key={item.id} className="composer-queue-item">
+                  <span className="composer-queue-index">{index + 1}</span>
+                  <span className="composer-queue-text" title={queuePreview(item)}>
+                    {queuePreview(item)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveQueued(item.id)}
+                    className="composer-queue-remove"
+                    aria-label={`Remove queued message ${index + 1}`}
+                    title="Remove"
+                  >
+                    <X size={12} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {suggestions.length > 0 && (
           <div
             ref={suggestListRef}
@@ -457,7 +509,7 @@ export function Composer({
             <button
               type="button"
               onClick={onPickFiles}
-              disabled={disabled || streaming}
+              disabled={disabled}
               className="composer-icon-button mb-0.5"
               title="Attach files"
               aria-label="Attach files"
@@ -479,7 +531,9 @@ export function Composer({
               placeholder={
                 disabled
                   ? "Open a folder to start…"
-                  : "Message maiku… (@ files, / commands, paste images)"
+                  : streaming
+                    ? "Queue a follow-up… (↵ adds to queue)"
+                    : "Message maiku… (@ files, / commands, paste images)"
               }
               onChange={(e) => {
                 const next = e.target.value;
@@ -536,16 +590,30 @@ export function Composer({
               className="max-h-[180px] min-h-[28px] flex-1 resize-none bg-transparent py-1.5 text-[14px] leading-6 outline-none placeholder:text-[var(--color-muted)] disabled:opacity-50"
             />
             {streaming ? (
-              <button
-                type="button"
-                onClick={() => void stop()}
-                disabled={stopping}
-                className="mb-0.5 rounded-xl bg-[var(--color-danger)]/15 p-2.5 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/25 disabled:opacity-50"
-                title={stopping ? "Stopping…" : "Stop response"}
-                aria-label={stopping ? "Stopping response" : "Stop response"}
-              >
-                {stopping ? <Loader2 size={14} className="animate-spin" /> : <Square size={14} fill="currentColor" />}
-              </button>
+              <>
+                {canSend && (
+                  <button
+                    type="button"
+                    onClick={() => void submit()}
+                    disabled={!canSend}
+                    className="composer-send mb-0.5"
+                    title="Queue message"
+                    aria-label="Queue message"
+                  >
+                    {submitting ? <Loader2 size={14} className="animate-spin" /> : <ListOrdered size={14} />}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void stop()}
+                  disabled={stopping}
+                  className="mb-0.5 rounded-xl bg-[var(--color-danger)]/15 p-2.5 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/25 disabled:opacity-50"
+                  title={stopping ? "Stopping…" : "Stop response (clears queue)"}
+                  aria-label={stopping ? "Stopping response" : "Stop response"}
+                >
+                  {stopping ? <Loader2 size={14} className="animate-spin" /> : <Square size={14} fill="currentColor" />}
+                </button>
+              </>
             ) : (
               <button
                 type="button"
@@ -566,7 +634,7 @@ export function Composer({
             </span>
             <span>
               {streaming ? (
-                <span className="text-[var(--color-accent)]">Draft saved while maiku works</span>
+                <>↵ queue <span className="opacity-55">·</span> stop clears queue</>
               ) : (
                 <>↵ send <span className="opacity-55">·</span> ⇧↵ new line</>
               )}

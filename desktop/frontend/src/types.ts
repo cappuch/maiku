@@ -17,6 +17,13 @@ export type ImageAttachment = {
   name?: string;
 };
 
+/** Composer messages waiting to send once the focused session goes idle. */
+export type QueuedMessage = {
+  id: string;
+  text: string;
+  images: ImageAttachment[];
+};
+
 export type PathSuggestion = {
   value: string;
   label: string;

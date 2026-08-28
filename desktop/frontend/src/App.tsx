@@ -28,6 +28,7 @@ import type {
   AppState,
   ImageAttachment,
   ModelInfo,
+  QueuedMessage,
   SessionSummary,
   SubagentActivity,
   UIMessage,
@@ -37,6 +38,16 @@ import { emptyUsage } from "./types";
 import { AppShell } from "./components/AppShell";
 
 const SCROLL_BOTTOM_THRESHOLD = 48;
+
+let queueSeq = 0;
+function nextQueueId() {
+  queueSeq += 1;
+  return `q-${Date.now()}-${queueSeq}`;
+}
+
+function sessionQueueKey(sessionId: string, cwd = "") {
+  return sessionId || cwd || "new";
+}
 
 function normalizeState(raw: Partial<AppState> | null | undefined): AppState {
   return {
@@ -114,6 +125,7 @@ export default function App() {
   const [thinkingStartedAt, setThinkingStartedAt] = useState<number | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [streamingSessionIds, setStreamingSessionIds] = useState<string[]>([]);
+  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
   const [tokensPerSec, setTokensPerSec] = useState(0);
   const [usage, setUsage] = useState<UsageTotals>(emptyUsage());
   const streamRef = useRef<{ time: number; chars: number } | null>(null);
@@ -133,7 +145,38 @@ export default function App() {
   // cannot overwrite a newer session after NewSession / OpenSession.
   const refreshGenRef = useRef(0);
   const focusedSessionRef = useRef("");
+  // Per-session outbound queue; flushed on maiku:idle for the focused session.
+  const queuesRef = useRef<Record<string, QueuedMessage[]>>({});
+  const streamingRef = useRef(false);
+  const cwdRef = useRef("");
+  const sendNowRef = useRef<(text: string, images?: ImageAttachment[]) => Promise<boolean>>(
+    async () => false,
+  );
 
+  const syncQueueUI = useCallback((key: string) => {
+    setMessageQueue([...(queuesRef.current[key] || [])]);
+  }, []);
+
+  const queueKeyFor = useCallback((sessionId?: string) => {
+    return sessionQueueKey(sessionId || focusedSessionRef.current, cwdRef.current);
+  }, []);
+
+  const flushNextQueued = useCallback(
+    (sessionId?: string) => {
+      const key = queueKeyFor(sessionId);
+      const queued = queuesRef.current[key];
+      if (!queued || queued.length === 0) return;
+      const [head, ...rest] = queued;
+      queuesRef.current[key] = rest;
+      syncQueueUI(key);
+      void sendNowRef.current(head.text, head.images).then((ok) => {
+        if (ok) return;
+        queuesRef.current[key] = [head, ...(queuesRef.current[key] || [])];
+        syncQueueUI(key);
+      });
+    },
+    [queueKeyFor, syncQueueUI],
+  );
   const refresh = useCallback(async () => {
     const gen = ++refreshGenRef.current;
     // Apply session state first — ListModels does network I/O and must not
@@ -141,8 +184,10 @@ export default function App() {
     const [s, sess] = await Promise.all([GetState(), ListSessions()]);
     if (gen !== refreshGenRef.current) return;
     const next = normalizeState(s);
-    const sameSession = focusedSessionRef.current === next.sessionId;
+    const prevSession = focusedSessionRef.current;
+    const sameSession = prevSession === next.sessionId;
     focusedSessionRef.current = next.sessionId;
+    cwdRef.current = next.cwd;
     setState(next);
     setMessages((current) => {
       if (!sameSession) return next.messages;
@@ -158,6 +203,7 @@ export default function App() {
       });
     });
     setUsage(next.usage);
+    streamingRef.current = next.streaming;
     setStreaming(next.streaming);
     setStreamingSessionIds(next.streamingSessionIds);
     setStreamText(next.streamText || "");
@@ -172,13 +218,20 @@ export default function App() {
       rateSamplesRef.current = [];
       setTokensPerSec(0);
     }
+    const qKey = sessionQueueKey(next.sessionId, next.cwd);
+    syncQueueUI(qKey);
+    // Session finished in the background while we were elsewhere — pick up
+    // its queue now that it's focused and idle.
+    if (!sameSession && !next.streaming) {
+      flushNextQueued(next.sessionId);
+    }
     setSessions((sess as SessionSummary[]) || []);
 
     const [mods, apiKeys] = await Promise.all([ListModels(), ListAPIKeys()]);
     if (gen !== refreshGenRef.current) return;
     setModels((mods as ModelInfo[]) || []);
     setKeys((apiKeys as APIKeyStatus[]) || []);
-  }, []);
+  }, [flushNextQueued, syncQueueUI]);
 
   const isFocused = useCallback((sessionId: unknown) => {
     return typeof sessionId === "string" && sessionId !== "" && sessionId === focusedSessionRef.current;
@@ -194,6 +247,7 @@ export default function App() {
         const sid = data?.sessionId as string | undefined;
         if (sid) setStreamingSessionIds((prev) => markStreaming(prev, sid));
         if (!isFocused(sid)) return;
+        streamingRef.current = true;
         setStreaming(true);
         setStreamText("");
         setStreamThinking("");
@@ -239,6 +293,7 @@ export default function App() {
         if (!isFocused(sid)) return;
 
         if (data?.role === "assistant") {
+          streamingRef.current = true;
           setStreaming(true);
           const replace = data?.replace === true;
           const hasTextDelta = typeof data?.textDelta === "string";
@@ -602,6 +657,7 @@ export default function App() {
             .catch(() => {});
           return;
         }
+        streamingRef.current = false;
         setStreaming(false);
         setStreamText("");
         setStreamThinking("");
@@ -621,12 +677,14 @@ export default function App() {
         ListSessions()
           .then((sess) => setSessions((sess as SessionSummary[]) || []))
           .catch(() => {});
+        flushNextQueued(sid);
       }),
       EventsOn("maiku:error", (data) => {
         const sid = data?.sessionId as string | undefined;
         if (sid) setStreamingSessionIds((prev) => clearStreaming(prev, sid));
         if (!isFocused(sid)) return;
         setError(data?.error || "Unknown error");
+        streamingRef.current = false;
         setStreaming(false);
       }),
       EventsOn("maiku:mcp", (data) => {
@@ -647,7 +705,7 @@ export default function App() {
     return () => {
       for (const off of offs) off?.();
     };
-  }, [isFocused]);
+  }, [isFocused, flushNextQueued]);
 
   const onTranscriptScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -676,13 +734,14 @@ export default function App() {
     return () => observer.disconnect();
   }, [state]);
 
-  const onSend = async (text: string, images: ImageAttachment[] = []): Promise<boolean> => {
+  const sendNow = useCallback(async (text: string, images: ImageAttachment[] = []): Promise<boolean> => {
     setError(null);
     // Sending is an explicit request to start a new turn, so reveal it and
     // resume following even if the user had been reading farther up.
     followTranscriptRef.current = true;
     const optimisticId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setMessages((prev) => [...prev, { id: optimisticId, role: "user", text, images }]);
+    streamingRef.current = true;
     setStreaming(true);
     if (focusedSessionRef.current) {
       setStreamingSessionIds((prev) => markStreaming(prev, focusedSessionRef.current));
@@ -695,12 +754,42 @@ export default function App() {
       // rejected prompt never looks as if it was accepted.
       setMessages((prev) => prev.filter((message) => message.id !== optimisticId));
       setError(errorMessage(error));
+      streamingRef.current = false;
       setStreaming(false);
       if (focusedSessionRef.current) {
         setStreamingSessionIds((prev) => clearStreaming(prev, focusedSessionRef.current));
       }
       return false;
     }
+  }, []);
+
+  sendNowRef.current = sendNow;
+
+  const onSend = async (text: string, images: ImageAttachment[] = []): Promise<boolean> => {
+    const sid = focusedSessionRef.current;
+    const busy =
+      streamingRef.current ||
+      (!!sid && streamingSessionIds.includes(sid));
+    if (busy) {
+      const key = queueKeyFor(sid);
+      const item: QueuedMessage = { id: nextQueueId(), text, images };
+      queuesRef.current[key] = [...(queuesRef.current[key] || []), item];
+      syncQueueUI(key);
+      return true;
+    }
+    return sendNow(text, images);
+  };
+
+  const removeQueued = (id: string) => {
+    const key = queueKeyFor();
+    queuesRef.current[key] = (queuesRef.current[key] || []).filter((item) => item.id !== id);
+    syncQueueUI(key);
+  };
+
+  const clearQueue = () => {
+    const key = queueKeyFor();
+    queuesRef.current[key] = [];
+    syncQueueUI(key);
   };
 
   const onCommand = async (command: string) => {
@@ -735,6 +824,7 @@ export default function App() {
         return;
       }
       setError(null);
+      streamingRef.current = true;
       setStreaming(true);
       if (focusedSessionRef.current) {
         setStreamingSessionIds((prev) => markStreaming(prev, focusedSessionRef.current));
@@ -743,6 +833,7 @@ export default function App() {
         await Goal(raw);
       } catch (error: unknown) {
         setError(errorMessage(error));
+        streamingRef.current = false;
         setStreaming(false);
         if (focusedSessionRef.current) {
           setStreamingSessionIds((prev) => clearStreaming(prev, focusedSessionRef.current));
@@ -753,6 +844,7 @@ export default function App() {
 
     if (command !== "compact") return;
     setError(null);
+    streamingRef.current = true;
     setStreaming(true);
     if (focusedSessionRef.current) {
       setStreamingSessionIds((prev) => markStreaming(prev, focusedSessionRef.current));
@@ -761,6 +853,7 @@ export default function App() {
       await Compact();
     } catch (error: unknown) {
       setError(errorMessage(error));
+      streamingRef.current = false;
       setStreaming(false);
       if (focusedSessionRef.current) {
         setStreamingSessionIds((prev) => clearStreaming(prev, focusedSessionRef.current));
@@ -846,6 +939,9 @@ export default function App() {
       onToggleSidebar={() => setSidebarOpen((v) => !v)}
       onToggleSettings={() => setSettingsOpen((v) => !v)}
       onSend={onSend}
+      messageQueue={messageQueue}
+      onRemoveQueued={removeQueued}
+      onClearQueue={clearQueue}
       onResend={async (rawIndex) => {
         setError(null);
         setMessages((prev) => {
@@ -854,6 +950,7 @@ export default function App() {
         });
         try {
           await ResendUserMessage(rawIndex);
+          streamingRef.current = true;
           setStreaming(true);
         } catch (resendError: unknown) {
           setError(errorMessage(resendError));
@@ -862,6 +959,7 @@ export default function App() {
       }}
       onCommand={onCommand}
       onAbort={async () => {
+        clearQueue();
         try {
           await Abort();
           return true;

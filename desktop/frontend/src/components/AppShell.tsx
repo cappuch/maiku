@@ -17,6 +17,7 @@ import type {
   ImageAttachment,
   MCPStatus,
   ModelInfo,
+  QueuedMessage,
   SessionSummary,
   UIMessage,
   UsageTotals,
@@ -51,6 +52,9 @@ type Props = {
   onToggleSidebar: () => void;
   onToggleSettings: () => void;
   onSend: (text: string, images: ImageAttachment[]) => Promise<boolean>;
+  messageQueue: QueuedMessage[];
+  onRemoveQueued: (id: string) => void;
+  onClearQueue: () => void;
   onCommand: (command: string) => void;
   onAbort: () => Promise<boolean>;
   onNewSession: () => void;
@@ -455,7 +459,10 @@ export function AppShell(props: Props) {
           <Composer
             draftKey={state.sessionId || state.cwd || "new"}
             streaming={streaming}
+            queue={props.messageQueue}
             onSend={props.onSend}
+            onRemoveQueued={props.onRemoveQueued}
+            onClearQueue={props.onClearQueue}
             onCommand={props.onCommand}
             onAbort={props.onAbort}
             disabled={!state.cwd}
