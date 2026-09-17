@@ -15,12 +15,28 @@ open build/bin/maiku.app
 
 ## CLI
 
+GitHub releases include standalone `maiku-cli-<os>-<arch>` archives for macOS
+(`darwin`), Linux, and Windows on amd64 and arm64, alongside the desktop app.
+Extract the archive and run `maiku` (`maiku.exe` on Windows) from your project
+folder. The CLI does not need the desktop app installed.
+
 ```bash
 export ANTHROPIC_API_KEY=...
-./bin/maiku -p "list Go files under ./ai"
-./bin/maiku --mode json -p "summarize agent/loop.go"
-./bin/maiku --list-models
+./bin/maiku
+./bin/maiku --continue
+./bin/maiku --provider anthropic --model MODEL_ID "explain this repo"
 ```
+
+The CLI opens a full-screen terminal workspace with a streaming transcript,
+multiline composer, model picker, saved sessions, tool activity, and MCP status.
+It shares credentials, settings, skills, and session files with the desktop app.
+An optional prompt pre-fills the composer for review before sending.
+
+Enter sends; Alt+Enter (or Ctrl+J) inserts a newline. PgUp/PgDn and the mouse
+wheel scroll. Ctrl+N starts a session, Ctrl+S opens saved sessions, and Ctrl+O
+opens the loaded model catalog. Escape stops the current run. Ctrl+C stops an
+active run or exits when idle. Use `--session PATH_OR_ID` to resume a specific
+session in the current folder, and `--help` for startup options.
 
 ## Desktop
 

@@ -9,6 +9,60 @@ permissions:
   contents: write
 
 jobs:
+  build-cli:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [darwin, linux, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build standalone CLI
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          mkdir -p package dist
+          binary=maiku
+          if [ "$GOOS" = windows ]; then binary=maiku.exe; fi
+          go build -trimpath -ldflags="-s -w" -o "package/$binary" ./cmd/maiku
+
+      - name: Smoke test CLI
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          ./package/maiku --version
+          ./package/maiku --help
+
+      - name: Package CLI
+        env:
+          TARGET_OS: ${{ matrix.goos }}
+          TARGET_ARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          asset="maiku-cli-$TARGET_OS-$TARGET_ARCH"
+          if [ "$TARGET_OS" = windows ]; then
+            (cd package && zip "../dist/$asset.zip" maiku.exe)
+          else
+            tar -C package -czf "dist/$asset.tar.gz" maiku
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maiku-cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
   build-desktop:
     strategy:
       fail-fast: false
@@ -110,7 +164,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build-desktop
+    needs: [build-desktop, build-cli]
     runs-on: ubuntu-latest
     steps:
       - name: Short SHA

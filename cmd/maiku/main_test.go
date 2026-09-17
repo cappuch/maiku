@@ -33,7 +33,7 @@ func TestRunNoArgs(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout=%q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), codingagent.APP_NAME+": no CLI command implemented in this build") {
-		t.Fatalf("stderr=%q, want unsupported message", stderr.String())
+	if !strings.Contains(stderr.String(), "interactive mode requires a terminal") {
+		t.Fatalf("stderr=%q, want terminal requirement", stderr.String())
 	}
 }

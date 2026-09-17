@@ -23,10 +23,10 @@ const toolPrefix = "mcp__"
 
 // Status is a snapshot of connected MCP servers for the UI.
 type Status struct {
-	Configured int             `json:"configured"`
-	Connected  int             `json:"connected"`
-	Failed     int             `json:"failed"`
-	Servers    []ServerStatus  `json:"servers"`
+	Configured int            `json:"configured"`
+	Connected  int            `json:"connected"`
+	Failed     int            `json:"failed"`
+	Servers    []ServerStatus `json:"servers"`
 }
 
 // ServerStatus is the runtime view of one configured MCP server.
@@ -252,6 +252,7 @@ func buildTransport(cfg ServerConfig, cwd string) (mcp.Transport, error) {
 	switch cfg.Kind() {
 	case "stdio":
 		cmd := exec.Command(cfg.Command, cfg.Args...)
+		configureBackgroundCommand(cmd)
 		cmd.Env = mergeEnv(os.Environ(), cfg.Env)
 		if cwd != "" {
 			cmd.Dir = cwd

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/mikus/maiku/codingagent/tui"
 	"io"
 	"os"
 
@@ -19,13 +20,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	if _, err := fmt.Fprintf(stderr, "%s: no CLI command implemented in this build\n", codingagent.APP_NAME); err != nil {
-		return 1
-	}
-	if _, err := fmt.Fprintln(stderr, "Use --version to verify the binary."); err != nil {
-		return 1
-	}
-	return 2
+	return tui.Run(args, os.Stdin, stdout, stderr)
 }
 
 func main() {
