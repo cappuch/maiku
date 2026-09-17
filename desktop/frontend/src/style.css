@@ -199,7 +199,6 @@
 }
 .composer-shell:focus-within {
   border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-line));
-  box-shadow: inset 0 1px rgba(255,255,255,.07), 0 0 0 3px rgba(240,183,90,.08), 0 18px 42px rgba(0,0,0,.27);
 }
 .composer-suggestions { border-radius: 14px; }
 .composer-icon-button {
@@ -215,7 +214,6 @@
   padding: 10px;
   color: #21180b;
   background: var(--color-accent);
-  box-shadow: 0 5px 14px rgba(240,183,90,.21), inset 0 1px rgba(255,255,255,.38);
   transition: filter .15s ease, transform .15s ease, opacity .15s ease;
 }
 .composer-send:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1px); }
@@ -463,19 +461,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   animation: caret-pulse .85s ease-in-out infinite;
 }
 
-/* Soft pulse for sessions with an in-flight agent run. */
-@keyframes session-glow {
-  0%,
-  100% {
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 50%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--color-accent) 40%, transparent);
-  }
-}
-
 .session-streaming {
-  animation: session-glow 1.8s ease-in-out infinite;
+  border-left: 2px solid var(--color-accent);
 }
 
 /* The live agent surface is deliberately subtle: activity feels present, never noisy. */
@@ -590,7 +577,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   border: 1px solid color-mix(in srgb, var(--color-accent) 55%, var(--color-line));
   border-radius: 11px;
   background: var(--color-accent);
-  box-shadow: 0 10px 24px rgba(240,183,90,.17), inset 0 1px rgba(255,255,255,.35);
   padding: 9px 12px;
   color: #21180b;
   font-size: 12px;
@@ -662,7 +648,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   background: rgba(240,183,90,.08);
   color: var(--color-accent);
   font: 600 23px/1 var(--font-mono);
-  box-shadow: 0 14px 45px rgba(240,183,90,.1);
 }
 .startup-loading { display: flex; align-items: center; gap: 9px; color: var(--color-muted); font-size: 12px; }
 .startup-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); animation: tool-pulse 1s ease-in-out infinite; }

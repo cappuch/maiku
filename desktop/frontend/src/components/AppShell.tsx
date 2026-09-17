@@ -200,7 +200,7 @@ export function AppShell(props: Props) {
       {/* Title bar — brand/folder left, model controls right. Vertically centered. */}
       <header
         data-wails-drag
-        className="titlebar-drag relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] pr-3 pl-[96px]"
+        className={cn("titlebar-drag relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] pr-3", isMac ? "pl-[96px]" : "pl-3")}
       >
         <div className="titlebar-no-drag flex min-w-0 items-center gap-1.5" data-wails-no-drag>
           <div className="relative min-w-0">
@@ -471,7 +471,7 @@ export function AppShell(props: Props) {
       </div>
 
       {/* Status bar */}
-      <footer className="status-bar relative z-20 flex h-8 shrink-0 items-center gap-4 border-t border-[var(--color-line)] px-3 font-mono text-[11px] text-[var(--color-muted)]">
+      <footer className="status-bar relative z-[35] flex h-8 shrink-0 items-center gap-4 border-t border-[var(--color-line)] px-3 font-mono text-[11px] text-[var(--color-muted)]">
         <Stat label="in" value={formatTokens(usage.input)} />
         <Stat label="out" value={formatTokens(usage.output)} />
         <Stat label="cache" value={formatCacheRate(usage.cacheRate)} accent />
@@ -558,16 +558,17 @@ function MCPStatusIndicator({ status }: { status?: MCPStatus }) {
 
   return (
     <div className="group relative flex items-center">
-      <span
+      <button
+        type="button"
         className={`flex items-center gap-1 ${tone}`}
         aria-label={label}
       >
         <Server size={11} />
         <span>{connected}/{configured}</span>
-      </span>
+      </button>
       <div
         role="tooltip"
-        className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 hidden w-64 rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] p-2 shadow-xl group-hover:block"
+        className="absolute bottom-full right-0 z-50 hidden w-64 rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] p-2 shadow-xl group-hover:block group-focus-within:block"
       >
         <p className="mb-1.5 px-1 text-[10px] font-medium tracking-wide text-[var(--color-muted)]">
           MCP servers
