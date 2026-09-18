@@ -38,6 +38,31 @@ opens the loaded model catalog. Escape stops the current run. Ctrl+C stops an
 active run or exits when idle. Use `--session PATH_OR_ID` to resume a specific
 session in the current folder, and `--help` for startup options.
 
+Slash commands work directly in the composer, including before any provider
+has been configured. Type `/help` for the full list; Tab completes commands.
+
+| Command | Action |
+|---------|--------|
+| `/sessions` | Open the session picker |
+| `/sessions new` or `/new` | Start a conversation |
+| `/sessions <path or ID>` | Resume a saved conversation |
+| `/models` | Open the model picker |
+| `/models <provider/model>` | Switch models in the current conversation |
+| `/models refresh` | Refresh configured provider catalogs |
+| `/providers` | List providers and credential status |
+| `/provider add [ID]` | Guided API-key setup or a custom OpenAI-compatible provider |
+| `/mcp` | List MCP connections |
+| `/mcp add` | Guided stdio, HTTP, or SSE server setup |
+| `/mcp reload` | Reconnect servers and refresh the current session's tools |
+| `/stop`, `/quit` | Stop a run or exit |
+
+Provider keys and MCP environment/header values use masked input fields.
+Setup is saved globally in the same configuration as the desktop app; commands
+and credentials are never sent as chat messages. Escape cancels setup before
+anything is saved. MCP arguments use a JSON string array, such as
+`["-y", "@example/server", "path with spaces"]`; environment variables and HTTP
+headers use JSON objects. Prefix a prompt with `//` to send a literal leading `/`.
+
 ## Desktop
 
 ```bash

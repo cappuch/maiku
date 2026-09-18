@@ -33,7 +33,7 @@ func Run(args []string, input *os.File, output, errors io.Writer) int {
 	flags.StringVar(&opts.session, "session", "", "Resume a session path or ID")
 	flags.BoolVar(&opts.resume, "continue", false, "Resume the latest session in this folder")
 	flags.Usage = func() {
-		fmt.Fprintln(errors, "Usage: maiku [--provider NAME] [--model ID] [--continue | --session PATH] [prompt]\n\nInteractive terminal workspace. Enter sends; Alt+Enter adds a line.\nCtrl+N new session · Ctrl+S sessions · Ctrl+O models · Esc stop · Ctrl+C quit")
+		fmt.Fprintln(errors, "Usage: maiku [--provider NAME] [--model ID] [--continue | --session PATH] [prompt]\n\nInteractive terminal workspace. Enter sends; Alt+Enter adds a line.\nCommands: /sessions, /models, /provider add, /mcp add, /help\nCtrl+N new session · Ctrl+S sessions · Ctrl+O models · Esc stop · Ctrl+C quit")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
@@ -104,11 +104,11 @@ func (m *model) initialize() tea.Msg {
 		selected = settings.DefaultModel
 	}
 	resolved, err := core.ResolveModel(core.ResolveModelOptions{Provider: provider, Model: selected})
+	_ = m.mcp.Sync(ctx, m.cwd, codingagent.GetAgentDir())
 	if err != nil {
 		return readyMsg{err: err}
 	}
 	m.selected = resolved
-	_ = m.mcp.Sync(ctx, m.cwd, codingagent.GetAgentDir())
 	dir := codingagent.GetDefaultSessionDir(m.cwd)
 	path := m.opts.session
 	if path != "" {

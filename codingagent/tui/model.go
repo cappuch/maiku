@@ -47,11 +47,14 @@ type model struct {
 	status, picker string
 	choices        []choice
 	cursor         int
+	notice         string
+	form           *setupForm
+	configBusy     bool
 }
 
 func newModel(ctx context.Context, cwd string, opts options) *model {
 	input := textarea.New()
-	input.Placeholder = "Ask maiku to work on this folder…"
+	input.Placeholder = "Ask maiku, or type /help for commands…"
 	input.ShowLineNumbers = false
 	input.CharLimit = 0
 	input.SetHeight(3)
@@ -98,10 +101,14 @@ func (m *model) refresh(bottom bool) {
 		b.WriteString(renderMessage(*m.live))
 	}
 	if b.Len() == 0 {
-		b.WriteString("What are we building?\n\nDescribe a change, ask about this repo, or resume a session.\n\nCtrl+S  Sessions\nCtrl+O  Models\nCtrl+N  New conversation")
+		b.WriteString("What are we building?\n\nDescribe a change, ask about this repo, or resume a session.\n\n/sessions  Saved conversations\n/models    Choose a model\n/help      All commands and setup")
 	}
 	if !m.loading && m.session == nil {
-		b.WriteString("\n\n" + m.status + "\n\nConfigure a provider in the desktop settings or set its API key environment variable, then restart maiku.")
+		b.WriteString("\n\nConfigure a provider with /provider add, then choose a model with /models.")
+	}
+	if m.notice != "" {
+		b.Reset()
+		b.WriteString(m.notice + "\n\nEsc returns to the conversation.")
 	}
 	m.viewport.SetContent(ansi.Hardwrap(b.String(), max(1, m.viewport.Width), true))
 	if bottom {
@@ -187,6 +194,26 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refresh(true)
 		return m, m.waitEvent
+	case configResult:
+		m.configBusy = false
+		m.status = msg.notice
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			m.showNotice(m.status)
+			return m, nil
+		}
+		if msg.rebuild {
+			if err := m.rebuildSession(); err != nil {
+				m.status = err.Error()
+				m.showNotice(m.status)
+				return m, nil
+			}
+		}
+		m.showNotice(msg.notice)
+		if msg.openModels {
+			m.openPicker(true)
+		}
+		return m, nil
 	case doneMsg:
 		m.busy = false
 		m.live = nil
@@ -224,22 +251,33 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loading {
 			return m, nil
 		}
+		if m.form != nil {
+			return m, m.updateForm(msg)
+		}
+		if m.configBusy {
+			return m, nil
+		}
 		if m.picker != "" {
 			return m, m.updatePicker(msg)
 		}
 		switch msg.String() {
+		case "tab":
+			if matches := commandMatches(m.input.Value()); len(matches) > 0 {
+				m.input.SetValue(matches[0] + " ")
+				m.input.CursorEnd()
+				return m, nil
+			}
 		case "esc":
 			if m.busy {
 				m.session.Abort()
 				m.status = "Stopping…"
 			}
+			m.notice = ""
+			m.refresh(false)
 			return m, nil
 		case "ctrl+n":
 			if !m.busy && m.session != nil {
-				if err := m.useSession(nil); err != nil {
-					m.status = err.Error()
-				}
-				m.refresh(true)
+				m.newSession()
 			}
 			return m, nil
 		case "ctrl+s", "ctrl+o":
@@ -253,10 +291,18 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		case "enter":
 			text := strings.TrimSpace(m.input.Value())
+			if strings.HasPrefix(text, "/") && !strings.HasPrefix(text, "//") {
+				m.input.Reset()
+				return m, m.command(text)
+			}
 			if text == "" || m.busy || m.session == nil {
 				return m, nil
 			}
 			m.input.Reset()
+			if strings.HasPrefix(text, "//") {
+				text = strings.TrimPrefix(text, "/")
+			}
+			m.notice = ""
 			m.busy = true
 			m.status = "Working…"
 			session := m.session
@@ -269,6 +315,9 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return nil
 			}
 		}
+	}
+	if m.form != nil {
+		return m, m.updateForm(message)
 	}
 	var cmd tea.Cmd
 	if _, ok := message.(tea.MouseMsg); ok {
@@ -342,6 +391,7 @@ func (m *model) updatePicker(msg tea.KeyMsg) tea.Cmd {
 			m.status = err.Error()
 		} else {
 			m.status = "Ready"
+			m.notice = ""
 		}
 		m.picker = ""
 		m.refresh(true)
@@ -367,7 +417,13 @@ func (m *model) View() string {
 		}
 		body = lipgloss.NewStyle().Height(m.viewport.Height).Render(b.String())
 	}
+	if m.form != nil {
+		body = m.form.View(m.viewport.Width, m.viewport.Height)
+	}
 	status := m.status
+	if matches := commandMatches(m.input.Value()); len(matches) > 0 && m.form == nil && m.picker == "" {
+		status = "Tab completes · " + strings.Join(matches, "  ")
+	}
 	if m.session != nil {
 		var tokens int
 		for _, msg := range m.messages {
@@ -378,5 +434,5 @@ func (m *model) View() string {
 		snapshot := m.mcp.Snapshot()
 		status += fmt.Sprintf("  · %d tokens · MCP %d/%d", tokens, snapshot.Connected, snapshot.Configured)
 	}
-	return lipgloss.NewStyle().Padding(0, 1).Render(ansi.Truncate(header, max(1, m.width-2), "…") + "\n" + muted.Render(strings.Repeat("─", max(1, m.width-2))) + "\n" + body + "\n" + lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#303039")).Render(m.input.View()) + "\n" + muted.Render(ansi.Truncate(status, max(1, m.width-2), "…")) + "\n" + muted.Render(ansi.Truncate("Enter send · Alt+Enter newline · PgUp/Dn scroll · ^N new · ^S sessions · ^O models · Esc stop · ^C quit", max(1, m.width-2), "…")))
+	return lipgloss.NewStyle().Padding(0, 1).Render(ansi.Truncate(header, max(1, m.width-2), "…") + "\n" + muted.Render(strings.Repeat("─", max(1, m.width-2))) + "\n" + body + "\n" + lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#303039")).Render(m.input.View()) + "\n" + muted.Render(ansi.Truncate(status, max(1, m.width-2), "…")) + "\n" + muted.Render(ansi.Truncate("/help commands · Enter send · Alt+Enter newline · PgUp/Dn scroll · Esc stop · ^C quit", max(1, m.width-2), "…")))
 }
