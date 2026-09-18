@@ -11,7 +11,7 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/mikus/maiku/codingagent/core/tools"
+	"github.com/cappuch/maiku/codingagent/core/tools"
 )
 
 // ImageAttachment is a base64-encoded image sent with a prompt from the UI.

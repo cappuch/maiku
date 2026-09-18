@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/codingagent"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/codingagent"
 )
 
 // SubagentToolName is intentionally not part of the normal built-in tool

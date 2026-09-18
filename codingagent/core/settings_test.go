@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mikus/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent"
 )
 
 func writeFile(t *testing.T, path, contents string) {

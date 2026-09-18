@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mikus/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent"
 )
 
 const maxRecentDirs = 5

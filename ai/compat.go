@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mikus/maiku/ai/auth"
+	"github.com/cappuch/maiku/ai/auth"
 )
 
 // StreamSimple dispatches to the streaming implementation registered for
@@ -13,8 +13,8 @@ import (
 // stream that immediately emits an "error" event.
 //
 // Callers typically get a registered implementation by importing
-// github.com/mikus/maiku/ai/api/anthropic and
-// github.com/mikus/maiku/ai/api/openaicompletions (or ai/providers, which
+// github.com/cappuch/maiku/ai/api/anthropic and
+// github.com/cappuch/maiku/ai/api/openaicompletions (or ai/providers, which
 // imports both) for their side-effecting init() registration.
 func StreamSimple(model Model, ctx Context, opts *SimpleStreamOptions) *AssistantMessageEventStream {
 	opts = withEnvAPIKey(model, opts)

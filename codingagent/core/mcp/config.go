@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mikus/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent"
 )
 
 // File is the on-disk shape of mcp.json (Cursor / Claude Desktop compatible).

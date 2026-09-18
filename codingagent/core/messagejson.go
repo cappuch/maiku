@@ -3,7 +3,7 @@ package core
 import (
 	"encoding/json"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 // ai.Message keeps assistant and tool-result content in Go-only fields that

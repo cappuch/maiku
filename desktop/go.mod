@@ -3,7 +3,7 @@ module maiku-desktop
 go 1.26.6
 
 require (
-	github.com/mikus/maiku v0.0.0-00010101000000-000000000000
+	github.com/cappuch/maiku v0.0.0-00010101000000-000000000000
 	github.com/wailsapp/wails/v2 v2.13.0
 )
 
@@ -68,7 +68,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/mikus/maiku => ../
+replace github.com/cappuch/maiku => ../
 
 // Miru is bundled in the parent checkout; do not fetch it from the network.
 replace github.com/takara-ai/miru-code => ../miru-code

@@ -1,6 +1,6 @@
 package tools
 
-import "github.com/mikus/maiku/agent"
+import "github.com/cappuch/maiku/agent"
 
 // ToolName identifies a builtin coding-agent tool.
 type ToolName string

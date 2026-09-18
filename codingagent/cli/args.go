@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mikus/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent"
 )
 
 // Mode is the output protocol used by print mode.

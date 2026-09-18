@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 // SessionSummary is a lightweight listing entry for the desktop/CLI UI.

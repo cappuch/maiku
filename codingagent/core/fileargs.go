@@ -9,8 +9,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/codingagent/core/tools"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/codingagent/core/tools"
 )
 
 // ProcessedFiles is the result of turning @file paths into prompt text and

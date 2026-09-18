@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/codingagent/core"
-	mcp "github.com/mikus/maiku/codingagent/core/mcp"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/codingagent/core"
+	mcp "github.com/cappuch/maiku/codingagent/core/mcp"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

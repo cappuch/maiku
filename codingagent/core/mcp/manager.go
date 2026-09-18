@@ -14,9 +14,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/codingagent"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/codingagent"
 )
 
 const toolPrefix = "mcp__"

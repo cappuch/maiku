@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 func writeSessionFile(t *testing.T, path, id string, withMessage bool) {

@@ -1,8 +1,8 @@
 package core
 
 import (
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/codingagent/core/tools"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/codingagent/core/tools"
 )
 
 // ToolOptions configures built-in tools that depend on session settings.

@@ -4,9 +4,9 @@ package modes
 import (
 	"encoding/json"
 
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/codingagent/core"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/codingagent/core"
 )
 
 // JSONEvent is the wire shape written to stdout by --mode json. Fields are

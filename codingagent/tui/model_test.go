@@ -3,9 +3,9 @@ package tui
 import (
 	"context"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/codingagent/core"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/codingagent/core"
 	"strings"
 	"testing"
 )

@@ -12,10 +12,10 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mikus/maiku/ai/providers"
-	"github.com/mikus/maiku/codingagent"
-	"github.com/mikus/maiku/codingagent/core"
-	mcp "github.com/mikus/maiku/codingagent/core/mcp"
+	"github.com/cappuch/maiku/ai/providers"
+	"github.com/cappuch/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent/core"
+	mcp "github.com/cappuch/maiku/codingagent/core/mcp"
 )
 
 type setupField struct {

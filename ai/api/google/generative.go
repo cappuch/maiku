@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 const (

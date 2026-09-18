@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mikus/maiku/ai/auth"
+	"github.com/cappuch/maiku/ai/auth"
 	miru "github.com/takara-ai/miru-code"
 )
 

@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mikus/maiku/ai/auth"
-	openaicodexoauth "github.com/mikus/maiku/ai/auth/openaicodex"
-	"github.com/mikus/maiku/codingagent"
-	"github.com/mikus/maiku/codingagent/internal/shellcmd"
+	"github.com/cappuch/maiku/ai/auth"
+	openaicodexoauth "github.com/cappuch/maiku/ai/auth/openaicodex"
+	"github.com/cappuch/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent/internal/shellcmd"
 )
 
 // Credential types stored in auth.json.

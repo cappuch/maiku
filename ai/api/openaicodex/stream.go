@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mikus/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent"
 )
 
 func TestRunVersion(t *testing.T) {

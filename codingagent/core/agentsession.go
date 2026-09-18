@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/ai/auth"
-	"github.com/mikus/maiku/codingagent/core/compaction"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/ai/auth"
+	"github.com/cappuch/maiku/codingagent/core/compaction"
 )
 
 // DefaultThinkingLevel matches the TypeScript default.

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 func TestBuiltinToolSchemasValidate(t *testing.T) {

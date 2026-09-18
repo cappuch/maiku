@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/mikus/maiku/codingagent/tui"
+	"github.com/cappuch/maiku/codingagent/tui"
 	"io"
 	"os"
 
-	"github.com/mikus/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent"
 )
 
 func run(args []string, stdout, stderr io.Writer) int {

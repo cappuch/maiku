@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/ai/api/openaicodex"
-	"github.com/mikus/maiku/ai/auth"
-	"github.com/mikus/maiku/ai/providers"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/ai/api/openaicodex"
+	"github.com/cappuch/maiku/ai/auth"
+	"github.com/cappuch/maiku/ai/providers"
 )
 
 var (

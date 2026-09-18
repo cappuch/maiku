@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 func TestEncodeDecodeAssistantMessage(t *testing.T) {

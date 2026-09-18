@@ -7,7 +7,7 @@ package agent
 import (
 	"context"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 // ThinkingLevel is the thinking/reasoning level for models that support it.

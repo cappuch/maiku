@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/ai/providers"
-	"github.com/mikus/maiku/codingagent"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/ai/providers"
+	"github.com/cappuch/maiku/codingagent"
 )
 
 var customProviderIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)

@@ -1,4 +1,4 @@
-module github.com/mikus/maiku
+module github.com/cappuch/maiku
 
 go 1.26.6
 

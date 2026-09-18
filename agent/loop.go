@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 type AgentEventSink func(event AgentEvent) error

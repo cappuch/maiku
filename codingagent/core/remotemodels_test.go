@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/mikus/maiku/ai/providers"
+	"github.com/cappuch/maiku/ai/providers"
 )
 
 func TestParseModelsResponseOpenRouterVision(t *testing.T) {

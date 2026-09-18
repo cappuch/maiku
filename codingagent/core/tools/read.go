@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/ai"
 )
 
 var errOperationAborted = errors.New("operation aborted")

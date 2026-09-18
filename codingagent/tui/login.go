@@ -6,8 +6,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	codex "github.com/mikus/maiku/ai/auth/openaicodex"
-	"github.com/mikus/maiku/codingagent/core"
+	codex "github.com/cappuch/maiku/ai/auth/openaicodex"
+	"github.com/cappuch/maiku/codingagent/core"
 	miru "github.com/takara-ai/miru-code"
 )
 

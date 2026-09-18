@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/codingagent"
-	"github.com/mikus/maiku/codingagent/core"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent/core"
 )
 
 func includesTool(tools []agent.AgentTool, name string) bool {

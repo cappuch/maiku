@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/ai"
 )
 
 const (

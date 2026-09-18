@@ -8,8 +8,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mikus/maiku/codingagent"
-	"github.com/mikus/maiku/codingagent/core"
+	"github.com/cappuch/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent/core"
 )
 
 const commandHelp = `Commands

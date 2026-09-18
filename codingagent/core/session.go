@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/codingagent"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/codingagent"
 )
 
 // SessionHeader is the first line of a session JSONL file.

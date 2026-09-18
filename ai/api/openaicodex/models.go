@@ -1,6 +1,6 @@
 package openaicodex
 
-import "github.com/mikus/maiku/ai"
+import "github.com/cappuch/maiku/ai"
 
 const providerID = "openai-codex"
 

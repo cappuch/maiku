@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 var (

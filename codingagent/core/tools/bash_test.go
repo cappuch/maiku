@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mikus/maiku/agent"
+	"github.com/cappuch/maiku/agent"
 )
 
 func executeBashTool(t *testing.T, tool *agent.AgentTool, command string) (string, error) {

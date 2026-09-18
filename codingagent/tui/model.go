@@ -14,11 +14,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/ai"
-	"github.com/mikus/maiku/codingagent"
-	"github.com/mikus/maiku/codingagent/core"
-	mcp "github.com/mikus/maiku/codingagent/core/mcp"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/codingagent"
+	"github.com/cappuch/maiku/codingagent/core"
+	mcp "github.com/cappuch/maiku/codingagent/core/mcp"
 )
 
 var accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#f0b75a"))

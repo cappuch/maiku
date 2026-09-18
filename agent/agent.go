@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/ai"
 )
 
 func defaultConvertToLLM(messages []AgentMessage) ([]ai.Message, error) {

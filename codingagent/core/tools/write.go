@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mikus/maiku/agent"
-	"github.com/mikus/maiku/ai"
+	"github.com/cappuch/maiku/agent"
+	"github.com/cappuch/maiku/ai"
 )
 
 var writeSchema = []byte(`{
