@@ -22,6 +22,8 @@ const commandHelp = `Commands
 /models refresh           Refresh configured provider catalogs
 /providers                List providers and credential status
 /provider add [ID]        Add a provider or update a built-in API key
+/codex-login              Connect a ChatGPT Codex subscription
+/miru-login               Sign in to Miru in your browser
 /mcp                      List MCP servers and connection status
 /mcp add                  Add a stdio, HTTP, or SSE server
 /mcp reload               Reload connections and available tools
@@ -33,7 +35,7 @@ Setup is saved globally and shared with the desktop app.
 API keys are entered in a masked field, never added to the conversation.
 Use // at the start to send a literal slash-prefixed prompt.`
 
-var slashCommands = []string{"/sessions", "/models", "/providers", "/provider add", "/mcp add", "/mcp reload", "/mcp", "/new", "/help", "/stop", "/quit"}
+var slashCommands = []string{"/sessions", "/models", "/providers", "/provider add", "/codex-login", "/miru-login", "/mcp add", "/mcp reload", "/mcp", "/new", "/help", "/stop", "/quit"}
 
 func commandMatches(value string) []string {
 	if !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") {
@@ -68,12 +70,17 @@ func (m *model) command(text string) tea.Cmd {
 		m.showNotice(commandHelp)
 		return nil
 	case "/stop":
+		if m.login != nil {
+			m.cancelLogin()
+			return nil
+		}
 		if m.busy && m.session != nil {
 			m.session.Abort()
 			m.status = "Stopping…"
 		}
 		return nil
 	case "/quit", "/exit":
+		m.cancelLogin()
 		if m.session != nil {
 			m.session.Abort()
 		}
@@ -84,6 +91,15 @@ func (m *model) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/codex-login", "/miru-login":
+		if rest != "" {
+			m.showNotice("Usage: " + name)
+			return nil
+		}
+		if name == "/codex-login" {
+			return m.startLogin("Codex", beginCodexLogin)
+		}
+		return m.startLogin("Miru", beginMiruLogin)
 	case "/sessions", "/session":
 		switch rest {
 		case "":

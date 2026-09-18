@@ -50,7 +50,10 @@ func (f *setupForm) resetInput() {
 	f.err = ""
 }
 func (m *model) startProviderForm(id string) tea.Cmd {
-	m.form = newForm("provider", setupField{key: "id", label: "Provider ID", hint: "openai, anthropic, or a new custom ID"})
+	if id == "openai-codex" || id == "codex" {
+		return m.startLogin("Codex", beginCodexLogin)
+	}
+	m.form = newForm("provider", setupField{key: "id", label: "Provider ID", hint: "openai, anthropic, openai-codex (subscription), or a custom ID"})
 	m.form.input.SetValue(id)
 	return textinput.Blink
 }
@@ -142,6 +145,13 @@ func (m *model) updateForm(msg tea.Msg) tea.Cmd {
 			m.status = "Setup cancelled"
 			return nil
 		case "enter":
+			if f.kind == "provider" && f.fields[f.index].key == "id" {
+				id := strings.ToLower(strings.TrimSpace(f.input.Value()))
+				if id == "openai-codex" || id == "codex" {
+					m.form = nil
+					return m.startLogin("Codex", beginCodexLogin)
+				}
+			}
 			if err := f.accept(m.cwd, codingagent.GetAgentDir()); err != nil {
 				f.err = err.Error()
 				return nil

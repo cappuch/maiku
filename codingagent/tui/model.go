@@ -50,6 +50,7 @@ type model struct {
 	notice         string
 	form           *setupForm
 	configBusy     bool
+	login          *loginAttempt
 }
 
 func newModel(ctx context.Context, cwd string, opts options) *model {
@@ -108,7 +109,10 @@ func (m *model) refresh(bottom bool) {
 	}
 	if m.notice != "" {
 		b.Reset()
-		b.WriteString(m.notice + "\n\nEsc returns to the conversation.")
+		b.WriteString(m.notice)
+		if m.login == nil {
+			b.WriteString("\n\nEsc returns to the conversation.")
+		}
 	}
 	m.viewport.SetContent(ansi.Hardwrap(b.String(), max(1, m.viewport.Width), true))
 	if bottom {
@@ -177,6 +181,15 @@ func renderMessage(msg ai.Message) string {
 
 func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
+	case loginStarted:
+		return m, m.handleLoginStarted(msg)
+	case loginFinished:
+		if m.login != msg.attempt {
+			return m, nil
+		}
+		m.login.cancel()
+		m.login = nil
+		return m.Update(msg.result)
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -240,6 +253,17 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh(bottom)
 		return m, m.waitEvent
 	case tea.KeyMsg:
+		if m.login != nil {
+			switch msg.String() {
+			case "esc", "ctrl+c":
+				m.cancelLogin()
+			case "pgup", "pgdown", "ctrl+home", "ctrl+end":
+				var cmd tea.Cmd
+				m.viewport, cmd = m.viewport.Update(msg)
+				return m, cmd
+			}
+			return m, nil
+		}
 		if msg.String() == "ctrl+c" {
 			if m.busy {
 				m.session.Abort()
