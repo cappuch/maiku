@@ -13,24 +13,24 @@ import (
 
 type loginChallenge struct {
 	url, code string
-	finish func(context.Context) configResult
+	finish    func(context.Context) configResult
 }
 
 type loginAttempt struct {
-	ctx context.Context
+	ctx    context.Context
 	cancel context.CancelFunc
-	name string
+	name   string
 }
 
 type loginStarted struct {
-	attempt *loginAttempt
+	attempt   *loginAttempt
 	challenge loginChallenge
-	err error
+	err       error
 }
 
 type loginFinished struct {
 	attempt *loginAttempt
-	result configResult
+	result  configResult
 }
 
 func (m *model) startLogin(name string, begin func(context.Context) (loginChallenge, error)) tea.Cmd {
@@ -100,6 +100,9 @@ func beginCodexLogin(ctx context.Context) (loginChallenge, error) {
 		})
 		if err != nil {
 			return configResult{err: err}
+		}
+		if err := core.RefreshProviderModels(ctx, "openai-codex"); err != nil {
+			return configResult{notice: "Codex subscription connected. Use /models refresh to load its models.", rebuild: true}
 		}
 		return configResult{notice: "Codex subscription connected. Choose an openai-codex model.", rebuild: true, openModels: true}
 	}}, nil
