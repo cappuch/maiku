@@ -259,7 +259,7 @@ func mapRemoteModel(provider providers.Provider, item map[string]any) (ai.Model,
 	}
 
 	reasoning := detectReasoning(item)
-	ctxWindow := intField(item, "context_length", "context_window", "contextWindow")
+	ctxWindow := intField(item, "context_length", "context_window", "contextWindow", "max_input_tokens")
 	if ctxWindow == 0 {
 		if top, ok := item["top_provider"].(map[string]any); ok {
 			ctxWindow = intField(top, "context_length")
