@@ -151,7 +151,15 @@ jobs:
           CGO_ENABLED: "1"
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
           RELEASE_TIME: ${{ needs.metadata.outputs.build_time }}
-        run: wails build ${{ matrix.build_args }} -ldflags "-X github.com/cappuch/maiku/updater.Version=$RELEASE_VERSION -X github.com/cappuch/maiku/updater.BuildTime=$RELEASE_TIME -X github.com/cappuch/maiku/updater.Repository=$GITHUB_REPOSITORY"
+        run: |
+          set -euo pipefail
+          # Windows runners compile with MinGW. Without these flags the exe
+          # imports libstdc++-6.dll (and the rest of the MinGW runtime), which
+          # is not installed on a normal Windows machine.
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            export CGO_LDFLAGS="-static-libgcc -static-libstdc++ -Wl,-Bstatic -lstdc++ -lpthread -Wl,-Bdynamic"
+          fi
+          wails build ${{ matrix.build_args }} -ldflags "-X github.com/cappuch/maiku/updater.Version=$RELEASE_VERSION -X github.com/cappuch/maiku/updater.BuildTime=$RELEASE_TIME -X github.com/cappuch/maiku/updater.Repository=$GITHUB_REPOSITORY"
 
       - name: Test desktop backend
         working-directory: desktop
@@ -170,7 +178,13 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item desktop/build/bin/maiku-desktop.exe "dist/${{ matrix.asset_name }}.exe"
+          $exe = "desktop/build/bin/maiku-desktop.exe"
+          Copy-Item $exe "dist/${{ matrix.asset_name }}.exe"
+          $objdump = Get-Command objdump -ErrorAction SilentlyContinue
+          if (-not $objdump) { throw "objdump is required to verify the Windows exe has no MinGW DLL imports" }
+          $deps = & objdump -p $exe
+          $missing = @('libstdc++-6.dll', 'libgcc_s_seh-1.dll', 'libgcc_s_dw2-1.dll', 'libwinpthread-1.dll') | Where-Object { $deps -match [regex]::Escape($_) }
+          if ($missing) { throw "Windows exe still imports MinGW runtime: $($missing -join ', ')" }
 
       - name: Package Linux artifact
         if: matrix.asset_kind == 'bin'
