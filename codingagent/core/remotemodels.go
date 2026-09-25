@@ -370,7 +370,8 @@ func detectReasoning(item map[string]any) bool {
 	return strings.Contains(id, "o1") || strings.Contains(id, "o3") || strings.Contains(id, "o4") ||
 		strings.Contains(id, "reasoning") || strings.Contains(id, "thinking") ||
 		strings.Contains(id, "gpt-5") || strings.Contains(id, "gpt-6") || strings.Contains(id, "claude-opus") ||
-		strings.Contains(id, "claude-sonnet-4")
+		strings.Contains(id, "claude-sonnet-4") || strings.Contains(id, "claude-sonnet-5") ||
+		strings.Contains(id, "claude-fable") || strings.Contains(id, "claude-mythos")
 }
 
 func parseRemoteCost(item map[string]any) ai.ModelCost {

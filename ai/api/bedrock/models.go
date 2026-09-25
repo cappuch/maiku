@@ -73,7 +73,7 @@ func FetchModels(ctx context.Context, baseURL, apiKey string) ([]ai.Model, error
 		// The catalog does not expose token limits or pricing. Use conservative
 		// defaults; callers can override max output tokens through stream options.
 		m := ai.Model{ID: f.ID, Name: f.Name, Provider: ProviderID, API: ai.APIBedrockConverseStream, Input: input, MaxTokens: 4096, ContextWindow: 32000}
-		m.Reasoning = adaptiveThinking(f.ID) || strings.Contains(f.ID, "anthropic.claude-sonnet-4") || strings.Contains(f.ID, "anthropic.claude-opus-4") || strings.Contains(f.ID, "anthropic.claude-3-7")
+		m.Reasoning = adaptiveThinking(f.ID) || strings.Contains(f.ID, "anthropic.claude-sonnet-4") || strings.Contains(f.ID, "anthropic.claude-sonnet-5") || strings.Contains(f.ID, "anthropic.claude-opus-4") || strings.Contains(f.ID, "anthropic.claude-opus-5") || strings.Contains(f.ID, "anthropic.claude-fable") || strings.Contains(f.ID, "anthropic.claude-mythos") || strings.Contains(f.ID, "anthropic.claude-3-7")
 		byID[f.ID] = m
 		if slices.Contains(f.Inference, "ON_DEMAND") {
 			models = append(models, m)

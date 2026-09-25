@@ -178,11 +178,11 @@ func buildRequest(model ai.Model, ctx ai.Context, opts *ai.SimpleStreamOptions) 
 			case ai.ThinkingMedium:
 				effort = "medium"
 			case ai.ThinkingMax:
-				if strings.Contains(model.ID, "opus-4-6") || strings.Contains(model.ID, "sonnet-4-6") || strings.Contains(model.ID, "opus-5") {
+				if strings.Contains(model.ID, "opus-4-6") || strings.Contains(model.ID, "opus-4-7") || strings.Contains(model.ID, "sonnet-4-6") || strings.Contains(model.ID, "sonnet-5") || strings.Contains(model.ID, "opus-5") || strings.Contains(model.ID, "claude-fable") || strings.Contains(model.ID, "claude-mythos") {
 					effort = "max"
 				}
 			case ai.ThinkingXHigh:
-				if strings.Contains(model.ID, "opus-4-6") || strings.Contains(model.ID, "opus-5") {
+				if strings.Contains(model.ID, "opus-4-6") || strings.Contains(model.ID, "opus-4-7") || strings.Contains(model.ID, "opus-5") || strings.Contains(model.ID, "claude-fable") || strings.Contains(model.ID, "claude-mythos") {
 					effort = "xhigh"
 				}
 			}
