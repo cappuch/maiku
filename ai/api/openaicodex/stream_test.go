@@ -48,13 +48,15 @@ func TestStaticModels(t *testing.T) {
 	if len(models) == 0 {
 		t.Fatal("expected models")
 	}
-	found := false
+	want := map[string]bool{"gpt-5.5": false, "gpt-5.6-astra": false, "gpt-6": false, "gpt-6-mini": false}
 	for _, m := range models {
-		if m.ID == "gpt-5.5" && m.API == "openai-codex-responses" && m.Provider == "openai-codex" {
-			found = true
+		if _, ok := want[m.ID]; ok && m.API == "openai-codex-responses" && m.Provider == "openai-codex" {
+			want[m.ID] = true
 		}
 	}
-	if !found {
-		t.Fatal("missing gpt-5.5")
+	for id, found := range want {
+		if !found {
+			t.Fatalf("missing %s", id)
+		}
 	}
 }

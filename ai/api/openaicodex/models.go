@@ -47,5 +47,9 @@ func StaticModels() []ai.Model {
 		mk("gpt-5.6-sol", "GPT-5.6 Sol", nil, c(5, 30, 0.5), 1050000, 128000),
 		mk("gpt-5.6-terra", "GPT-5.6 Terra", nil, c(2, 12, 0.2), 1050000, 128000),
 		mk("gpt-5.6-luna", "GPT-5.6 Luna", nil, c(0.2, 1.2, 0.02), 1050000, 128000),
+		mk("gpt-5.6-astra", "GPT-5.6 Astra", nil, c(5, 30, 0.5), 1050000, 128000),
+
+		mk("gpt-6", "GPT-6", nil, c(5, 30, 0.5), 1050000, 128000),
+		mk("gpt-6-mini", "GPT-6 Mini", nil, c(0.75, 4.5, 0.075), 400000, 128000),
 	}
 }

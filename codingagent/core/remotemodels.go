@@ -285,10 +285,10 @@ func mapRemoteModel(provider providers.Provider, item map[string]any) (ai.Model,
 	if api == "" {
 		api = ai.APIOpenAICompletions
 	}
-	// OpenAI: prefer Responses for gpt-5 / o-series, Completions otherwise.
+	// OpenAI: prefer Responses for gpt-5 / gpt-6 / o-series, Completions otherwise.
 	if provider.ID == "openai" {
 		lid := strings.ToLower(id)
-		if strings.HasPrefix(lid, "gpt-5") || strings.HasPrefix(lid, "o1") ||
+		if strings.HasPrefix(lid, "gpt-5") || strings.HasPrefix(lid, "gpt-6") || strings.HasPrefix(lid, "o1") ||
 			strings.HasPrefix(lid, "o3") || strings.HasPrefix(lid, "o4") {
 			api = ai.APIOpenAIResponses
 		} else {
@@ -369,7 +369,7 @@ func detectReasoning(item map[string]any) bool {
 	id := strings.ToLower(stringField(item, "id"))
 	return strings.Contains(id, "o1") || strings.Contains(id, "o3") || strings.Contains(id, "o4") ||
 		strings.Contains(id, "reasoning") || strings.Contains(id, "thinking") ||
-		strings.Contains(id, "gpt-5") || strings.Contains(id, "claude-opus") ||
+		strings.Contains(id, "gpt-5") || strings.Contains(id, "gpt-6") || strings.Contains(id, "claude-opus") ||
 		strings.Contains(id, "claude-sonnet-4")
 }
 
