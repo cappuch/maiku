@@ -157,7 +157,10 @@ jobs:
           # imports libstdc++-6.dll (and the rest of the MinGW runtime), which
           # is not installed on a normal Windows machine.
           if [ "${RUNNER_OS}" = "Windows" ]; then
-            export CGO_LDFLAGS="-static-libgcc -static-libstdc++ -Wl,-Bstatic -lstdc++ -lpthread -Wl,-Bdynamic"
+            # Leave the linker in static mode. MinGW adds -lpthread after these
+            # flags; switching back to -Bdynamic makes that resolve to
+            # libwinpthread-1.dll.
+            export CGO_LDFLAGS="-static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread"
           fi
           wails build ${{ matrix.build_args }} -ldflags "-X github.com/cappuch/maiku/updater.Version=$RELEASE_VERSION -X github.com/cappuch/maiku/updater.BuildTime=$RELEASE_TIME -X github.com/cappuch/maiku/updater.Repository=$GITHUB_REPOSITORY"
 
