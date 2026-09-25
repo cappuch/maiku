@@ -30,6 +30,14 @@ export function GetMCPStatus() {
   return window['go']['main']['App']['GetMCPStatus']();
 }
 
+export function GetAutoUpdateEnabled() {
+  return window['go']['main']['App']['GetAutoUpdateEnabled']();
+}
+
+export function SetAutoUpdateEnabled(arg1) {
+  return window['go']['main']['App']['SetAutoUpdateEnabled'](arg1);
+}
+
 export function GetState() {
   return window['go']['main']['App']['GetState']();
 }

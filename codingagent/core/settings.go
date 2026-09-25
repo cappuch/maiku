@@ -75,6 +75,7 @@ type Settings struct {
 	Subagent            *bool                  `json:"subagent,omitempty"`
 	EnabledModels       []string               `json:"enabledModels,omitempty"`
 	QuietStartup        *bool                  `json:"quietStartup,omitempty"`
+	AutoUpdate          *bool                  `json:"autoUpdate,omitempty"`
 	HTTPProxy           string                 `json:"httpProxy,omitempty"`
 	HTTPIdleTimeoutMs   *int                   `json:"httpIdleTimeoutMs,omitempty"`
 	// CustomProviders are user-defined OpenAI-compatible (or other) routes.
@@ -83,9 +84,9 @@ type Settings struct {
 
 // CustomProvider describes a user-defined model API endpoint.
 type CustomProvider struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	BaseURL string   `json:"baseUrl"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	BaseURL string `json:"baseUrl"`
 	// API defaults to openai-completions when empty.
 	API string `json:"api,omitempty"`
 	// Models are optional static model ids used when /models is unavailable.
@@ -307,6 +308,27 @@ func (s Settings) ThinkingLevelForModel(modelID string) (string, bool) {
 	}
 	level, ok := s.Reasoning[modelID]
 	return level, ok && level != ""
+}
+
+// AutoUpdateEnabled reads the application-wide preference. Workspace settings
+// cannot override whether the installed application updates itself.
+func AutoUpdateEnabled(agentDir string) (bool, error) {
+	if agentDir == "" {
+		agentDir = codingagent.GetAgentDir()
+	}
+	raw, err := readSettingsFile(GlobalSettingsPath(codingagent.ExpandTildePath(agentDir)))
+	if err != nil {
+		return false, err
+	}
+	value, exists := raw["autoUpdate"]
+	if !exists {
+		return true, nil
+	}
+	enabled, ok := value.(bool)
+	if !ok {
+		return false, errors.New("autoUpdate must be a boolean")
+	}
+	return enabled, nil
 }
 
 // PatchGlobalSettings merges patch into ~/.maiku/agent/settings.json,

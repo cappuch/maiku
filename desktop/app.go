@@ -48,6 +48,7 @@ type liveSession struct {
 // App is the Wails-bound backend for the maiku desktop UI.
 type App struct {
 	ctx context.Context
+	updates *desktopUpdater
 
 	mu       sync.Mutex
 	cwd      string

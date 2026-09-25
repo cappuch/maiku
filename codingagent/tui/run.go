@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/term"
 	"github.com/cappuch/maiku/agent"
 	"github.com/cappuch/maiku/ai"
 	"github.com/cappuch/maiku/codingagent"
 	"github.com/cappuch/maiku/codingagent/core"
 	"github.com/cappuch/maiku/codingagent/core/compaction"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/term"
 )
 
 type options struct {
@@ -35,6 +35,7 @@ func Run(args []string, input *os.File, output, errors io.Writer) int {
 	flags.Usage = func() {
 		fmt.Fprintln(errors, "Usage: maiku [--provider NAME] [--model ID] [--continue | --session PATH] [prompt]\n\nInteractive terminal workspace. Enter sends; Alt+Enter adds a line.\nCommands: /sessions, /models, /provider add, /codex-login, /miru-login, /mcp add, /help\nCtrl+N new session · Ctrl+S sessions · Ctrl+O models · Esc stop · Ctrl+C quit")
 		flags.PrintDefaults()
+		fmt.Fprintln(errors, "\nUpdates: maiku update [--check]\nSet MAIKU_AUTO_UPDATE=0 to disable automatic updates.")
 	}
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {

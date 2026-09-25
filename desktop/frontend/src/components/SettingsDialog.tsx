@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Code2, KeyRound, Plus, RefreshCw, Search, Server, Trash2, X } from "lucide-react";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import {
+  GetAutoUpdateEnabled,
+  SetAutoUpdateEnabled,
   ListCustomProviders,
   ListMCPServers,
   ReloadMCP,
@@ -19,7 +21,7 @@ export type CodexLoginHandlers = {
   cancel: () => Promise<void> | void;
 };
 
-type SettingsTab = "providers" | "miru" | "mcp";
+type SettingsTab = "providers" | "miru" | "mcp" | "updates";
 
 export function SettingsDialog({
   keys,
@@ -164,6 +166,9 @@ export function SettingsDialog({
             </button>
             <button type="button" onClick={() => setTab("mcp")} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "mcp" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
               <Server size={14} /> MCP
+            </button>
+            <button type="button" onClick={() => setTab("updates")} aria-current={tab === "updates" ? "page" : undefined} className={`mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "updates" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
+              <RefreshCw size={14} /> Updates
             </button>
           </nav>
 
@@ -380,11 +385,78 @@ export function SettingsDialog({
               )}
             </div>
           </div>
+        ) : tab === "updates" ? (
+          <UpdatesSettingsPane />
         ) : (
           <MCPSettingsPane />
         )}
           </section>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function UpdatesSettingsPane() {
+  const [enabled, setEnabled] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setError(null);
+    GetAutoUpdateEnabled().then((value) => {
+      if (active) { setEnabled(value); setLoaded(true); }
+    }).catch((err: unknown) => {
+      if (active) setError(String(err));
+    });
+    return () => { active = false; };
+  }, [attempt]);
+
+  const save = async (value: boolean) => {
+    const previous = enabled;
+    setEnabled(value);
+    setSaving(true);
+    setError(null);
+    try {
+      await SetAutoUpdateEnabled(value);
+    } catch (err) {
+      setEnabled(previous);
+      setError(String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="mx-auto max-w-2xl">
+        <div className="mb-6 flex items-start gap-3">
+          <div className="rounded-lg bg-[var(--color-panel-2)] p-2 text-[var(--color-accent)]"><RefreshCw size={18} /></div>
+          <div>
+            <h3 className="text-sm font-semibold">Updates</h3>
+            <p className="mt-1 text-xs leading-5 text-[var(--color-muted)]">Keep maiku up to date.</p>
+          </div>
+        </div>
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
+          <input
+            type="checkbox"
+            checked={enabled}
+            disabled={!loaded || saving}
+            onChange={(event) => void save(event.target.checked)}
+            aria-describedby="auto-update-description"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] disabled:opacity-40"
+          />
+          <span>
+            <span className="block text-xs font-medium">Auto update</span>
+            <span id="auto-update-description" className="mt-1 block text-xs leading-5 text-[var(--color-muted)]">Automatically check for new versions. You’ll be asked before a desktop update is installed. Changes apply immediately and also control automatic CLI updates.</span>
+          </span>
+        </label>
+        <p role="status" className="mt-3 text-xs text-[var(--color-muted)]">{saving ? "Saving…" : !loaded && !error ? "Loading update preferences…" : "You can always check manually from Help → Check for Updates."}</p>
+        {error && <p role="alert" className="mt-3 text-xs text-[var(--color-danger)]">{error}</p>}
+        {!loaded && error && <button type="button" onClick={() => setAttempt((value) => value + 1)} className="mt-3 rounded-md border border-[var(--color-line)] px-3 py-1.5 text-xs">Try again</button>}
       </div>
     </div>
   );

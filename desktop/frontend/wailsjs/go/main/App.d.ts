@@ -18,6 +18,10 @@ export function FinishOpenAICodexLogin():Promise<void>;
 
 export function GetMCPStatus():Promise<mcp.Status>;
 
+export function GetAutoUpdateEnabled():Promise<boolean>;
+
+export function SetAutoUpdateEnabled(arg1:boolean):Promise<void>;
+
 export function GetState():Promise<main.AppState>;
 
 export function Goal(arg1:string):Promise<void>;

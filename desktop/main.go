@@ -14,6 +14,8 @@ var assets embed.FS
 
 func main() {
 	app := NewApp()
+	updates := newDesktopUpdater()
+	app.updates = updates
 
 	err := wails.Run(&options.App{
 		Title:     "maiku",
@@ -26,6 +28,9 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 18, G: 18, B: 20, A: 1},
 		OnStartup:        app.startup,
+		OnDomReady:       updates.start,
+		OnShutdown:       updates.stop,
+		Menu:             updates.menu(),
 		Bind:             []any{app},
 		Mac: &mac.Options{
 			TitleBar: mac.TitleBarHiddenInset(),

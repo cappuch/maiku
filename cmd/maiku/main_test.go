@@ -37,3 +37,19 @@ func TestRunNoArgs(t *testing.T) {
 		t.Fatalf("stderr=%q, want terminal requirement", stderr.String())
 	}
 }
+
+func TestUpdateArguments(t *testing.T) {
+	for _, args := range [][]string{{"update", "--force"}, {"update", "--check", "extra"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "Usage: maiku update") {
+			t.Fatalf("args=%v code=%d error=%q", args, code, stderr.String())
+		}
+	}
+}
+
+func TestDevelopmentUpdateDoesNotUseNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"update", "--check"}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "development builds") {
+		t.Fatalf("code=%d error=%q", code, stderr.String())
+	}
+}

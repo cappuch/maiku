@@ -8,8 +8,25 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      build_time: ${{ steps.meta.outputs.build_time }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        run: |
+          echo "version=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+
   build-cli:
+    needs: metadata
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -31,12 +48,14 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_TIME: ${{ needs.metadata.outputs.build_time }}
         run: |
           set -euo pipefail
           mkdir -p package dist
           binary=maiku
           if [ "$GOOS" = windows ]; then binary=maiku.exe; fi
-          go build -trimpath -ldflags="-s -w" -o "package/$binary" ./cmd/maiku
+          go build -trimpath -ldflags="-s -w -X github.com/cappuch/maiku/updater.Version=$RELEASE_VERSION -X github.com/cappuch/maiku/updater.BuildTime=$RELEASE_TIME -X github.com/cappuch/maiku/updater.Repository=$GITHUB_REPOSITORY" -o "package/$binary" ./cmd/maiku
 
       - name: Smoke test CLI
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
@@ -64,6 +83,7 @@ jobs:
           if-no-files-found: error
 
   build-desktop:
+    needs: metadata
     strategy:
       fail-fast: false
       matrix:
@@ -126,9 +146,12 @@ jobs:
       # main.go embeds frontend/dist, which Wails generates during the build.
       - name: Build desktop UI
         working-directory: desktop
+        shell: bash
         env:
           CGO_ENABLED: "1"
-        run: wails build ${{ matrix.build_args }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_TIME: ${{ needs.metadata.outputs.build_time }}
+        run: wails build ${{ matrix.build_args }} -ldflags "-X github.com/cappuch/maiku/updater.Version=$RELEASE_VERSION -X github.com/cappuch/maiku/updater.BuildTime=$RELEASE_TIME -X github.com/cappuch/maiku/updater.Repository=$GITHUB_REPOSITORY"
 
       - name: Test desktop backend
         working-directory: desktop
@@ -164,17 +187,25 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [build-desktop, build-cli]
+    needs: [metadata, build-desktop, build-cli]
     runs-on: ubuntu-latest
     steps:
-      - name: Short SHA
-        id: meta
-        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      - name: Update metadata
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_TIME: ${{ needs.metadata.outputs.build_time }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          with open("dist/updater.json", "w") as f:
+              json.dump({"version": os.environ["RELEASE_VERSION"],
+                         "buildTime": int(os.environ["RELEASE_TIME"])}, f)
+          PY
 
       - name: Checksums
         run: |
@@ -184,9 +215,19 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: sha-${{ steps.meta.outputs.short_sha }}
-          name: maiku ${{ steps.meta.outputs.short_sha }}
+          tag_name: ${{ needs.metadata.outputs.version }}
+          name: maiku ${{ needs.metadata.outputs.version }}
           target_commitish: ${{ github.sha }}
           prerelease: true
+          draft: true
+          body: '<!-- maiku-updater:{"version":"${{ needs.metadata.outputs.version }}","buildTime":${{ needs.metadata.outputs.build_time }}} -->'
           generate_release_notes: true
           files: dist/*
+          fail_on_unmatched_files: true
+
+      # Publish only after every payload, checksum, and metadata file is uploaded.
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: gh release edit "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
