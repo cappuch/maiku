@@ -171,6 +171,10 @@ func NewAgentSession(options AgentSessionOptions) *AgentSession {
 			if key := auth.ResolveAPIKey(provider); key != "" {
 				return key, nil
 			}
+			if provider == "amazon-bedrock" {
+				// AWS credentials are resolved by the provider's SDK chain.
+				return "", nil
+			}
 			return "", fmt.Errorf("no API key for provider %q; pass --api-key or set the provider environment variable", provider)
 		},
 		SessionID:       sessionID,

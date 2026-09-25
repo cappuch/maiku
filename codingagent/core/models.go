@@ -53,7 +53,7 @@ func FindProvider(id string) (providers.Provider, bool) {
 
 // HasAPIKey reports whether an API key for the provider is available.
 func HasAPIKey(providerID string) bool {
-	return auth.ResolveAPIKey(providerID) != ""
+	return auth.HasCredentials(providerID)
 }
 
 // ResolveModelOptions describes the user's model selection inputs.

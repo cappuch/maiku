@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/ai/api/bedrock"
 	"github.com/cappuch/maiku/ai/api/openaicodex"
 	"github.com/cappuch/maiku/ai/auth"
 	"github.com/cappuch/maiku/ai/providers"
@@ -103,6 +104,9 @@ func FetchProviderModels(ctx context.Context, provider providers.Provider, apiKe
 	}
 	if provider.ID == "openai-codex" {
 		return openaicodex.StaticModels(), nil
+	}
+	if provider.ID == bedrock.ProviderID {
+		return bedrock.FetchModels(ctx, provider.BaseURL, apiKey)
 	}
 	url, err := modelsListURL(provider, apiKey)
 	if err != nil {

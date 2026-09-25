@@ -5,6 +5,7 @@ package providers
 
 import (
 	_ "github.com/cappuch/maiku/ai/api/anthropic"
+	_ "github.com/cappuch/maiku/ai/api/bedrock"
 	_ "github.com/cappuch/maiku/ai/api/google"
 	_ "github.com/cappuch/maiku/ai/api/openaicodex"
 	_ "github.com/cappuch/maiku/ai/api/openaicompletions"
@@ -56,6 +57,7 @@ func All() []Provider {
 		{ID: "opencode", Name: "OpenCode Zen", BaseURL: "https://opencode.ai/zen/v1", API: ai.APIOpenAICompletions},
 		{ID: "opencode-go", Name: "OpenCode Go", BaseURL: "https://opencode.ai/zen/go/v1", API: ai.APIOpenAICompletions},
 		{ID: "xiaomi", Name: "Xiaomi MiMo", BaseURL: "https://api.xiaomimimo.com/v1", API: ai.APIOpenAICompletions},
+		{ID: "amazon-bedrock", Name: "AWS Bedrock", API: ai.APIBedrockConverseStream},
 	}
 }
 

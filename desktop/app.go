@@ -184,7 +184,7 @@ func NewApp() *App {
 	providerID := settings.Settings.DefaultProvider
 	if providerID == "" {
 		for _, p := range core.AllProviders() {
-			if auth.ResolveAPIKey(p.ID) != "" {
+			if auth.HasCredentials(p.ID) {
 				providerID = p.ID
 				break
 			}
@@ -320,7 +320,7 @@ func (a *App) refreshConfiguredModels() {
 		if seen[p.ID] {
 			continue
 		}
-		if p.ID == "openai-codex" || auth.ResolveAPIKey(p.ID) != "" {
+		if p.ID == "openai-codex" || auth.HasCredentials(p.ID) {
 			ids = append(ids, p.ID)
 			seen[p.ID] = true
 		}
@@ -1157,7 +1157,7 @@ func (a *App) GetState() AppState {
 		SessionID:           sessionID,
 		SessionPath:         sessionPath,
 		Usage:               usage,
-		HasAPIKey:           auth.ResolveAPIKey(a.model.Provider) != "",
+		HasAPIKey:           auth.HasCredentials(a.model.Provider),
 		Messages:            messages,
 		RecentDirs:          append([]string(nil), a.recentDirs...),
 		StreamingSessionIDs: a.streamingSessionIDsLocked(),
@@ -1180,7 +1180,7 @@ func (a *App) ListModels() []ModelInfo {
 	a.refreshConfiguredModels()
 	var out []ModelInfo
 	for _, p := range core.AllProviders() {
-		has := auth.ResolveAPIKey(p.ID) != ""
+		has := auth.HasCredentials(p.ID)
 		for _, m := range p.Models {
 			vision := slices.Contains(m.Input, "image")
 			out = append(out, ModelInfo{
@@ -1440,6 +1440,10 @@ func (a *App) ListAPIKeys() []APIKeyStatus {
 					status.Source = "file"
 				}
 			}
+		}
+		if !status.HasKey && p.ID == "amazon-bedrock" && auth.HasCredentials(p.ID) {
+			status.HasKey = true
+			status.Source = "aws"
 		}
 		out = append(out, status)
 	}
@@ -1750,7 +1754,7 @@ func (a *App) promptWithDisplay(display, modelText string, images []ImageAttachm
 		a.mu.Unlock()
 		return fmt.Errorf("already streaming")
 	}
-	if auth.ResolveAPIKey(a.model.Provider) == "" {
+	if !auth.HasCredentials(a.model.Provider) {
 		provider := a.model.Provider
 		a.mu.Unlock()
 		return fmt.Errorf("no API key for provider %q — add one in Settings", provider)
@@ -1864,7 +1868,7 @@ func (a *App) Compact() error {
 		a.mu.Unlock()
 		return fmt.Errorf("already streaming")
 	}
-	if auth.ResolveAPIKey(a.model.Provider) == "" {
+	if !auth.HasCredentials(a.model.Provider) {
 		provider := a.model.Provider
 		a.mu.Unlock()
 		return fmt.Errorf("no API key for provider %q — add one in Settings", provider)

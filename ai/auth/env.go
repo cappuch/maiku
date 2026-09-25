@@ -9,6 +9,7 @@ import (
 // can supply an API key for a given provider id.
 var providerEnvVars = map[string][]string{
 	"anthropic":         {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN"},
+	"amazon-bedrock":    {"AWS_BEARER_TOKEN_BEDROCK"},
 	"openai":            {"OPENAI_API_KEY"},
 	"openai-codex":      {"OPENAI_CODEX_API_KEY", "CHATGPT_API_KEY"},
 	"openrouter":        {"OPENROUTER_API_KEY"},
