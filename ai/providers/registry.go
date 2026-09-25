@@ -57,12 +57,15 @@ func All() []Provider {
 		{ID: "opencode", Name: "OpenCode Zen", BaseURL: "https://opencode.ai/zen/v1", API: ai.APIOpenAICompletions},
 		{ID: "opencode-go", Name: "OpenCode Go", BaseURL: "https://opencode.ai/zen/go/v1", API: ai.APIOpenAICompletions},
 		{ID: "xiaomi", Name: "Xiaomi MiMo", BaseURL: "https://api.xiaomimimo.com/v1", API: ai.APIOpenAICompletions},
-		{ID: "amazon-bedrock", Name: "AWS Bedrock", API: ai.APIBedrockConverseStream},
+		{ID: "bedrock", Name: "Bedrock", API: ai.APIBedrockConverseStream},
 	}
 }
 
 // Find returns the provider with the given id.
 func Find(id string) (Provider, bool) {
+	if id == "amazon-bedrock" {
+		id = "bedrock"
+	}
 	for _, p := range All() {
 		if p.ID == id {
 			return p, true

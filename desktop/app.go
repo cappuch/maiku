@@ -1441,7 +1441,7 @@ func (a *App) ListAPIKeys() []APIKeyStatus {
 				}
 			}
 		}
-		if !status.HasKey && p.ID == "amazon-bedrock" && auth.HasCredentials(p.ID) {
+		if !status.HasKey && (p.ID == "bedrock" || p.ID == "amazon-bedrock") && auth.HasCredentials(p.ID) {
 			status.HasKey = true
 			status.Source = "aws"
 		}

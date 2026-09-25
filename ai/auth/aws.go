@@ -14,7 +14,7 @@ func HasCredentials(provider string) bool {
 	if ResolveAPIKey(provider) != "" {
 		return true
 	}
-	if provider != "amazon-bedrock" {
+	if provider != "bedrock" && provider != "amazon-bedrock" {
 		return false
 	}
 	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {

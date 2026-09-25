@@ -105,9 +105,27 @@ func FetchProviderModels(ctx context.Context, provider providers.Provider, apiKe
 	if provider.ID == "openai-codex" {
 		return openaicodex.StaticModels(), nil
 	}
-	if provider.ID == bedrock.ProviderID {
+	if provider.ID == bedrock.ProviderID || provider.ID == "amazon-bedrock" {
+		if strings.HasPrefix(strings.TrimSpace(apiKey), "sk-ant-") {
+			anthropic, ok := providers.Find("anthropic")
+			if !ok {
+				return nil, fmt.Errorf("anthropic provider is not registered")
+			}
+			models, err := fetchRemoteModels(ctx, anthropic, apiKey)
+			if err != nil {
+				return nil, err
+			}
+			for i := range models {
+				models[i].Provider = bedrock.ProviderID
+			}
+			return models, nil
+		}
 		return bedrock.FetchModels(ctx, provider.BaseURL, apiKey)
 	}
+	return fetchRemoteModels(ctx, provider, apiKey)
+}
+
+func fetchRemoteModels(ctx context.Context, provider providers.Provider, apiKey string) ([]ai.Model, error) {
 	url, err := modelsListURL(provider, apiKey)
 	if err != nil {
 		return nil, err

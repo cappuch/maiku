@@ -16,7 +16,7 @@ import (
 	"github.com/cappuch/maiku/ai"
 )
 
-const ProviderID = "amazon-bedrock"
+const ProviderID = "bedrock"
 
 type signedTransport struct {
 	config      aws.Config

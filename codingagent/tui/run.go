@@ -97,8 +97,16 @@ func (m *model) initialize() tea.Msg {
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
 	defer cancel()
+	seen := map[string]bool{}
 	if provider != "" {
 		_ = core.RefreshProviderModels(ctx, provider)
+		seen[provider] = true
+	}
+	for _, p := range core.AllProviders() {
+		if seen[p.ID] || !core.HasAPIKey(p.ID) {
+			continue
+		}
+		_ = core.RefreshProviderModels(ctx, p.ID)
 	}
 	selected := m.opts.model
 	if selected == "" {
