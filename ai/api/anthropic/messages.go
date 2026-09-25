@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,14 +94,15 @@ type anthropicThinkingConfig struct {
 }
 
 type anthropicRequest struct {
-	Model       string                   `json:"model"`
-	Messages    []anthropicMessage       `json:"messages"`
-	System      []anthropicTextBlock     `json:"system,omitempty"`
-	MaxTokens   int                      `json:"max_tokens"`
-	Stream      bool                     `json:"stream"`
-	Temperature *float64                 `json:"temperature,omitempty"`
-	Tools       []anthropicTool          `json:"tools,omitempty"`
-	Thinking    *anthropicThinkingConfig `json:"thinking,omitempty"`
+	Model        string                   `json:"model"`
+	Messages     []anthropicMessage       `json:"messages"`
+	System       []anthropicTextBlock     `json:"system,omitempty"`
+	MaxTokens    int                      `json:"max_tokens"`
+	Stream       bool                     `json:"stream"`
+	Temperature  *float64                 `json:"temperature,omitempty"`
+	Tools        []anthropicTool          `json:"tools,omitempty"`
+	Thinking     *anthropicThinkingConfig `json:"thinking,omitempty"`
+	OutputConfig map[string]string        `json:"output_config,omitempty"`
 }
 
 // Stream implements ai.StreamFn for the Anthropic Messages API.
@@ -490,12 +492,44 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 		// Thinking tokens count against max_tokens — add the budget on top of
 		// the answer allotment so reasoning cannot starve the reply.
 		req.MaxTokens = max(ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets), budget+1024)
-		req.Thinking = &anthropicThinkingConfig{Type: "enabled", BudgetTokens: budget}
+		if usesAdaptiveThinking(model.ID) {
+			req.Thinking = &anthropicThinkingConfig{Type: "adaptive"}
+			effort := "high"
+			switch opts.Reasoning {
+			case ai.ThinkingMinimal, ai.ThinkingLow:
+				effort = "low"
+			case ai.ThinkingMedium:
+				effort = "medium"
+			case ai.ThinkingXHigh:
+				if strings.Contains(model.ID, "opus-") {
+					effort = "xhigh"
+				}
+			case ai.ThinkingMax:
+				if strings.Contains(model.ID, "opus-") {
+					effort = "max"
+				}
+			}
+			req.OutputConfig = map[string]string{"effort": effort}
+		} else {
+			req.Thinking = &anthropicThinkingConfig{Type: "enabled", BudgetTokens: budget}
+		}
 	} else if model.Reasoning {
 		req.Thinking = &anthropicThinkingConfig{Type: "disabled"}
 	}
 
 	return req, nil
+}
+
+var adaptiveClaudeVersion = regexp.MustCompile(`claude-(?:sonnet|opus)-([0-9]+)(?:[-.]([0-9]{1,2})(?:[-.:]|$))?`)
+
+func usesAdaptiveThinking(id string) bool {
+	v := adaptiveClaudeVersion.FindStringSubmatch(id)
+	if len(v) == 0 {
+		return false
+	}
+	major, _ := strconv.Atoi(v[1])
+	minor, _ := strconv.Atoi(v[2])
+	return major > 4 || (major == 4 && minor >= 6)
 }
 
 var toolCallIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]`)

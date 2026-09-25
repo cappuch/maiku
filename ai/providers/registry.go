@@ -57,7 +57,7 @@ func All() []Provider {
 		{ID: "opencode", Name: "OpenCode Zen", BaseURL: "https://opencode.ai/zen/v1", API: ai.APIOpenAICompletions},
 		{ID: "opencode-go", Name: "OpenCode Go", BaseURL: "https://opencode.ai/zen/go/v1", API: ai.APIOpenAICompletions},
 		{ID: "xiaomi", Name: "Xiaomi MiMo", BaseURL: "https://api.xiaomimimo.com/v1", API: ai.APIOpenAICompletions},
-		{ID: "bedrock", Name: "Bedrock", API: ai.APIBedrockConverseStream},
+		{ID: "bedrock", Name: "AWS Bedrock", API: ai.APIBedrockConverseStream},
 	}
 }
 
