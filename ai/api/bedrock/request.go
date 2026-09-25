@@ -190,8 +190,8 @@ func buildRequest(model ai.Model, ctx ai.Context, opts *ai.SimpleStreamOptions) 
 			additional["output_config"] = object{"effort": effort}
 		} else {
 			additional["thinking"] = object{"type": "enabled", "budget_tokens": budget}
+			inference["maxTokens"] = maxTokens + budget
 		}
-		inference["maxTokens"] = maxTokens + budget
 		delete(inference, "temperature")
 		delete(inference, "topP")
 	} else if model.Reasoning && strings.Contains(model.ID, "anthropic.") && opts.Reasoning == ai.ThinkingOff {

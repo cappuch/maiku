@@ -54,3 +54,22 @@ func TestLegacyAndDisabledThinkingRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestAdaptiveThinkingOutputCeiling(t *testing.T) {
+	for _, tokens := range []int{4096, 128000} {
+		for _, level := range []ai.ThinkingLevel{ai.ThinkingHigh, ai.ThinkingXHigh, ai.ThinkingMax} {
+			for _, override := range []*int{nil, &tokens} {
+				model := ai.Model{ID: "claude-opus-5-5", Provider: "bedrock", Reasoning: true, MaxTokens: tokens}
+				opts := &ai.SimpleStreamOptions{Reasoning: level}
+				opts.MaxTokens = override
+				req, err := buildRequest(model, ai.Context{}, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if req.MaxTokens != tokens {
+					t.Fatalf("%s: max_tokens = %d, want %d", level, req.MaxTokens, tokens)
+				}
+			}
+		}
+	}
+}

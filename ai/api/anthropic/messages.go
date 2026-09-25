@@ -488,11 +488,9 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 	}
 
 	if thinkingEnabled {
-		budget := max(ai.ThinkingBudgetFor(opts.Reasoning, opts.ThinkingBudgets), 1024)
-		// Thinking tokens count against max_tokens — add the budget on top of
-		// the answer allotment so reasoning cannot starve the reply.
-		req.MaxTokens = max(ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets), budget+1024)
 		if usesAdaptiveThinking(model.ID) {
+			// Adaptive thinking shares the configured output ceiling with the
+			// answer; it does not use an additional fixed thinking budget.
 			req.Thinking = &anthropicThinkingConfig{Type: "adaptive"}
 			effort := "high"
 			switch opts.Reasoning {
@@ -511,6 +509,8 @@ func buildRequest(model ai.Model, ctxData ai.Context, opts *ai.SimpleStreamOptio
 			}
 			req.OutputConfig = map[string]string{"effort": effort}
 		} else {
+			budget := max(ai.ThinkingBudgetFor(opts.Reasoning, opts.ThinkingBudgets), 1024)
+			req.MaxTokens = max(ai.ExpandMaxTokensForThinking(maxTokens, opts.Reasoning, opts.ThinkingBudgets), budget+1024)
 			req.Thinking = &anthropicThinkingConfig{Type: "enabled", BudgetTokens: budget}
 		}
 	} else if model.Reasoning {

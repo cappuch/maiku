@@ -293,3 +293,24 @@ func TestAdaptiveThinking(t *testing.T) {
 		}
 	}
 }
+
+func TestAdaptiveThinkingOutputCeiling(t *testing.T) {
+	for _, tokens := range []int{4096, 128000} {
+		for _, level := range []ai.ThinkingLevel{ai.ThinkingHigh, ai.ThinkingXHigh, ai.ThinkingMax} {
+			for _, override := range []*int{nil, &tokens} {
+				model := testModel()
+				model.ID = "us.anthropic.claude-opus-5-5-v1:0"
+				model.MaxTokens = tokens
+				opts := &ai.SimpleStreamOptions{Reasoning: level}
+				opts.MaxTokens = override
+				req, err := buildRequest(model, ai.Context{}, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := req["inferenceConfig"].(object)["maxTokens"]; got != tokens {
+					t.Fatalf("%s: maxTokens = %v, want %d", level, got, tokens)
+				}
+			}
+		}
+	}
+}
