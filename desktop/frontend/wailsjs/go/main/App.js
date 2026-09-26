@@ -26,16 +26,12 @@ export function FinishOpenAICodexLogin() {
   return window['go']['main']['App']['FinishOpenAICodexLogin']();
 }
 
-export function GetMCPStatus() {
-  return window['go']['main']['App']['GetMCPStatus']();
-}
-
 export function GetAutoUpdateEnabled() {
   return window['go']['main']['App']['GetAutoUpdateEnabled']();
 }
 
-export function SetAutoUpdateEnabled(arg1) {
-  return window['go']['main']['App']['SetAutoUpdateEnabled'](arg1);
+export function GetMCPStatus() {
+  return window['go']['main']['App']['GetMCPStatus']();
 }
 
 export function GetState() {
@@ -116,6 +112,10 @@ export function ResendUserMessage(arg1) {
 
 export function SetAPIKey(arg1, arg2) {
   return window['go']['main']['App']['SetAPIKey'](arg1, arg2);
+}
+
+export function SetAutoUpdateEnabled(arg1) {
+  return window['go']['main']['App']['SetAutoUpdateEnabled'](arg1);
 }
 
 export function SetMCPServerEnabled(arg1, arg2) {

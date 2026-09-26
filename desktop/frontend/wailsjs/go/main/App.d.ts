@@ -16,11 +16,9 @@ export function CompletePath(arg1:string):Promise<Array<main.PathSuggestion>>;
 
 export function FinishOpenAICodexLogin():Promise<void>;
 
-export function GetMCPStatus():Promise<mcp.Status>;
-
 export function GetAutoUpdateEnabled():Promise<boolean>;
 
-export function SetAutoUpdateEnabled(arg1:boolean):Promise<void>;
+export function GetMCPStatus():Promise<mcp.Status>;
 
 export function GetState():Promise<main.AppState>;
 
@@ -61,6 +59,8 @@ export function RenameSession(arg1:string,arg2:string):Promise<void>;
 export function ResendUserMessage(arg1:number):Promise<void>;
 
 export function SetAPIKey(arg1:string,arg2:string):Promise<void>;
+
+export function SetAutoUpdateEnabled(arg1:boolean):Promise<void>;
 
 export function SetMCPServerEnabled(arg1:string,arg2:boolean):Promise<void>;
 

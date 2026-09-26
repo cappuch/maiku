@@ -6,11 +6,11 @@ export namespace core {
 	    baseUrl: string;
 	    api?: string;
 	    models?: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CustomProvider(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -20,7 +20,6 @@ export namespace core {
 	        this.models = source["models"];
 	    }
 	}
-
 	export class SessionSummary {
 	    id: string;
 	    path: string;
@@ -85,7 +84,7 @@ export namespace main {
 	    }
 	}
 	export class UIMessage {
-	    id: string;
+	    id?: string;
 	    role: string;
 	    text?: string;
 	    thinking?: string;
@@ -96,6 +95,7 @@ export namespace main {
 	    isError?: boolean;
 	    streaming?: boolean;
 	    images?: ImageAttachment[];
+	    rawIndex?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new UIMessage(source);
@@ -114,6 +114,7 @@ export namespace main {
 	        this.isError = source["isError"];
 	        this.streaming = source["streaming"];
 	        this.images = this.convertValues(source["images"], ImageAttachment);
+	        this.rawIndex = source["rawIndex"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
