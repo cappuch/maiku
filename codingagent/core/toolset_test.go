@@ -16,6 +16,7 @@ func TestBuiltinToolSchemasValidate(t *testing.T) {
 		"miru":       {"query": "authentication flow"},
 		"web_search": {"query": "Go context cancellation", "max_results": 5},
 		"curl":       {"url": "https://example.com"},
+		"computer":   {"action": "screenshot"},
 	}
 
 	tools := BuiltinTools(t.TempDir())
@@ -39,7 +40,7 @@ func TestBuiltinToolSchemasValidate(t *testing.T) {
 	}
 
 	prompt := BuildSystemPrompt(BuildSystemPromptOptions{Cwd: t.TempDir()})
-	for _, name := range []string{"miru", "web_search", "curl"} {
+	for _, name := range []string{"miru", "web_search", "curl", "computer"} {
 		if !strings.Contains(prompt, "- "+name+":") {
 			t.Errorf("default system prompt does not advertise %q", name)
 		}

@@ -432,6 +432,18 @@ function GenericToolCard({ message }: { message: UIMessage }) {
             <div className="mb-1 text-[10px] tracking-wide">args</div>
             <pre className="overflow-x-auto whitespace-pre-wrap text-[var(--color-text)]">{args}</pre>
           </div>
+          {message.images && message.images.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {message.images.map((image) => (
+                <img
+                  key={`${image.mimeType}-${image.data.slice(0, 24)}`}
+                  src={`data:${image.mimeType};base64,${image.data}`}
+                  alt="screenshot"
+                  className="max-h-72 max-w-full rounded-md border border-[var(--color-line)] object-contain"
+                />
+              ))}
+            </div>
+          )}
           {message.text && (
             <div>
               <div className="mb-1 text-[10px] tracking-wide">result</div>

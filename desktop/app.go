@@ -47,7 +47,7 @@ type liveSession struct {
 
 // App is the Wails-bound backend for the maiku desktop UI.
 type App struct {
-	ctx context.Context
+	ctx     context.Context
 	updates *desktopUpdater
 
 	mu       sync.Mutex
@@ -72,11 +72,11 @@ type App struct {
 
 // UsageTotals is the cumulative token/cost accounting for the open session.
 type UsageTotals struct {
-	Input       int     `json:"input"`
-	Output      int     `json:"output"`
-	CacheRead   int     `json:"cacheRead"`
-	CacheWrite  int     `json:"cacheWrite"`
-	TotalTokens int     `json:"totalTokens"`
+	Input       int `json:"input"`
+	Output      int `json:"output"`
+	CacheRead   int `json:"cacheRead"`
+	CacheWrite  int `json:"cacheWrite"`
+	TotalTokens int `json:"totalTokens"`
 	// Cost is root-agent spend only (this session's own LLM turns).
 	Cost float64 `json:"cost"`
 	// TotalCost is Cost plus nested subagent spend attached to tool results.
@@ -86,23 +86,23 @@ type UsageTotals struct {
 
 // AppState is returned by GetState.
 type AppState struct {
-	Cwd                 string      `json:"cwd"`
-	FolderName          string      `json:"folderName"`
-	UserName            string      `json:"userName"`
-	Provider            string      `json:"provider"`
-	ModelID             string      `json:"modelId"`
-	ModelName           string      `json:"modelName"`
-	Thinking            string      `json:"thinking"`
-	Streaming           bool        `json:"streaming"`
-	SessionID           string      `json:"sessionId"`
-	SessionPath         string      `json:"sessionPath"`
-	Usage               UsageTotals `json:"usage"`
-	HasAPIKey           bool        `json:"hasApiKey"`
-	Messages            []UIMessage `json:"messages"`
-	RecentDirs          []string    `json:"recentDirs"`
-	StreamingSessionIDs []string    `json:"streamingSessionIds"`
-	StreamText          string      `json:"streamText"`
-	StreamThinking      string      `json:"streamThinking"`
+	Cwd                 string        `json:"cwd"`
+	FolderName          string        `json:"folderName"`
+	UserName            string        `json:"userName"`
+	Provider            string        `json:"provider"`
+	ModelID             string        `json:"modelId"`
+	ModelName           string        `json:"modelName"`
+	Thinking            string        `json:"thinking"`
+	Streaming           bool          `json:"streaming"`
+	SessionID           string        `json:"sessionId"`
+	SessionPath         string        `json:"sessionPath"`
+	Usage               UsageTotals   `json:"usage"`
+	HasAPIKey           bool          `json:"hasApiKey"`
+	Messages            []UIMessage   `json:"messages"`
+	RecentDirs          []string      `json:"recentDirs"`
+	StreamingSessionIDs []string      `json:"streamingSessionIds"`
+	StreamText          string        `json:"streamText"`
+	StreamThinking      string        `json:"streamThinking"`
 	MCP                 mcppkg.Status `json:"mcp"`
 }
 
@@ -882,17 +882,13 @@ func toUIMessage(m ai.Message) UIMessage {
 		}
 		return UIMessage{Role: "assistant", Text: text, Thinking: assistantThinking(m), IsError: m.StopReason == ai.StopError}
 	case "toolResult":
-		var text strings.Builder
-		for _, c := range m.ToolContent {
-			if c.Type == "text" {
-				text.WriteString(c.Text)
-			}
-		}
+		text, images := toolResultTextAndImages(m.ToolContent)
 		return UIMessage{
 			Role:       "toolResult",
 			ToolName:   m.ToolName,
 			ToolCallID: m.ToolCallID,
-			Text:       text.String(),
+			Text:       text,
+			Images:     images,
 			Details:    m.Details,
 			IsError:    m.IsError,
 		}
@@ -942,13 +938,7 @@ func transcriptUIMessages(messages []ai.Message) []UIMessage {
 				}
 				if result, ok := resultsByID[c.ID]; ok {
 					seenResults[c.ID] = true
-					var text strings.Builder
-					for _, tc := range result.ToolContent {
-						if tc.Type == "text" {
-							text.WriteString(tc.Text)
-						}
-					}
-					ui.Text = text.String()
+					ui.Text, ui.Images = toolResultTextAndImages(result.ToolContent)
 					ui.Details = result.Details
 					ui.IsError = result.IsError
 				}
@@ -988,6 +978,22 @@ func stripInjectedFiles(text string) string {
 		return "(attached files)"
 	}
 	return cleaned
+}
+
+func toolResultTextAndImages(content []ai.ToolResultContent) (string, []ImageAttachment) {
+	var text strings.Builder
+	var images []ImageAttachment
+	for _, c := range content {
+		switch c.Type {
+		case "text":
+			text.WriteString(c.Text)
+		case "image":
+			if c.MimeType != "" && c.Data != "" {
+				images = append(images, ImageAttachment{MimeType: c.MimeType, Data: c.Data})
+			}
+		}
+	}
+	return text.String(), images
 }
 
 func extractUserImages(content any) []ImageAttachment {

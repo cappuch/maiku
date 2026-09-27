@@ -9,7 +9,7 @@ import (
 
 // DefaultToolNames are the built-in tools enabled when the caller does not
 // pass an allowlist.
-var DefaultToolNames = []string{"read", "bash", "edit", "write", "miru", "web_search", "curl"}
+var DefaultToolNames = []string{"read", "bash", "edit", "write", "miru", "web_search", "curl", "computer"}
 
 // DefaultToolSnippets are the one-line tool descriptions rendered into the
 // system prompt's "Available tools" section.
@@ -24,6 +24,7 @@ var DefaultToolSnippets = map[string]string{
 	"miru":       "Search repository code by meaning",
 	"web_search": "Search the web with DuckDuckGo HTML search",
 	"curl":       "Fetch HTTP(S) page content with a browser user agent",
+	"computer":   "Control the macOS desktop (click, type, keys, scroll) and see a screenshot after each action",
 	"subagent":   "Delegate a self-contained task to an independent child Maiku and receive a Markdown report",
 }
 
@@ -112,6 +113,9 @@ func BuildSystemPrompt(options BuildSystemPromptOptions) string {
 	}
 	if has["read"] && (has["edit"] || has["write"]) {
 		addGuideline("Prefer reading a file before editing it")
+	}
+	if has["computer"] {
+		addGuideline("Use the computer tool when the user wants something done in other apps or on the desktop. Take a screenshot first, click the center of controls, and check the screenshot after each action")
 	}
 	if has[SubagentToolName] {
 		addGuideline("Use subagents for self-contained delegated work. Issue multiple subagent calls in one response when tasks are independent, then review their reports and remain responsible for the overall result")

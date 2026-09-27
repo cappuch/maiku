@@ -16,6 +16,7 @@ const (
 	ToolMiru      ToolName = "miru"
 	ToolWebSearch ToolName = "web_search"
 	ToolCurl      ToolName = "curl"
+	ToolComputer  ToolName = "computer"
 )
 
 // BuiltinToolOptions configures built-in tools that need runtime settings.
@@ -32,6 +33,7 @@ var DefaultToolNames = []string{
 	string(ToolMiru),
 	string(ToolWebSearch),
 	string(ToolCurl),
+	string(ToolComputer),
 }
 
 func createBuiltinTool(name string, cwd string, options BuiltinToolOptions) *agent.AgentTool {
@@ -56,6 +58,8 @@ func createBuiltinTool(name string, cwd string, options BuiltinToolOptions) *age
 		return CreateWebSearchTool()
 	case ToolCurl:
 		return CreateCurlTool()
+	case ToolComputer:
+		return CreateComputerTool()
 	default:
 		return nil
 	}
