@@ -120,7 +120,7 @@ type UIMessage struct {
 	Streaming  bool              `json:"streaming,omitempty"`
 	Images     []ImageAttachment `json:"images,omitempty"`
 	// RawIndex is the index into the session transcript for user messages,
-	// used by ResendUserMessage.
+	// used when that message is edited and resent.
 	RawIndex *int `json:"rawIndex,omitempty"`
 }
 
@@ -1697,8 +1697,8 @@ func (a *App) Prompt(text string, images []ImageAttachment) error {
 }
 
 // ResendUserMessage truncates the transcript to just before the user message
-// at rawIndex and sends that message again.
-func (a *App) ResendUserMessage(rawIndex int) error {
+// at rawIndex and sends text in its place. Images already on that message stay.
+func (a *App) ResendUserMessage(rawIndex int, text string) error {
 	if err := a.ensureSession(); err != nil {
 		return err
 	}
@@ -1722,8 +1722,12 @@ func (a *App) ResendUserMessage(rawIndex int) error {
 		a.mu.Unlock()
 		return fmt.Errorf("not a user message")
 	}
-	display := stripInjectedFiles(ai.ContentText(target.UserContent))
 	images := extractUserImages(target.UserContent)
+	display := strings.TrimSpace(text)
+	if display == "" && len(images) == 0 {
+		a.mu.Unlock()
+		return fmt.Errorf("empty message")
+	}
 	kept := append([]ai.Message{}, messages[:rawIndex]...)
 	if err := live.mgr.ReplaceMessages(kept); err != nil {
 		a.mu.Unlock()

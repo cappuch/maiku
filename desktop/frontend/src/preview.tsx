@@ -161,7 +161,7 @@ function Preview() {
         onSetModel={() => {}}
         onSetThinking={() => {}}
         onSaveKey={() => {}}
-        onResend={() => {}}
+        onEditMessage={() => {}}
         onDismissError={() => {}}
         codexLogin={{
           begin: async () => ({ userCode: "ABCD-EFGH", verificationUri: "https://auth.openai.com" }),

@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ArrowDown, Check, Copy, FolderOpen, RotateCcw } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, Copy, FolderOpen, Pencil } from "lucide-react";
 import type { UIMessage } from "../types";
+import { cn } from "../lib/utils";
 import { Markdown, copyText } from "./Markdown";
 import { ThinkingLive } from "./ThinkingLive";
 import { ToolCallCard } from "./ToolCallCard";
@@ -24,7 +25,7 @@ export function Transcript({
   hasWorkspace = true,
   onOpenFolder,
   openFolderShortcut = "⌘O",
-  onResend,
+  onEditMessage,
   lastError,
   onDismissError,
 }: {
@@ -41,7 +42,7 @@ export function Transcript({
   hasWorkspace?: boolean;
   onOpenFolder?: () => void;
   openFolderShortcut?: string;
-  onResend?: (rawIndex: number) => void;
+  onEditMessage?: (rawIndex: number, text: string) => void;
   lastError?: string | null;
   onDismissError?: () => void;
 }) {
@@ -141,8 +142,8 @@ export function Transcript({
         <MessageRow
           key={message.id || (message.toolCallId ? `tool-${message.toolCallId}` : `${message.role}-${offset + index}`)}
           message={message}
-          onResend={onResend}
-          canResend={!streaming && typeof message.rawIndex === "number"}
+          onEditMessage={onEditMessage}
+          canEdit={!streaming && typeof message.rawIndex === "number"}
         />
       ));
     const visibleActivityStart = Math.max(visibleStart, liveActivityStart);
@@ -150,7 +151,7 @@ export function Transcript({
       before: render(messages.slice(visibleStart, visibleActivityStart), visibleStart),
       after: render(messages.slice(visibleActivityStart), visibleActivityStart),
     };
-  }, [messages, liveActivityStart, visibleStart, onResend, streaming]);
+  }, [messages, liveActivityStart, visibleStart, onEditMessage, streaming]);
 
   const isEmpty = messages.length === 0 && !showThinking && !showStream && !streaming;
 
@@ -240,14 +241,181 @@ export function Transcript({
   );
 }
 
-const MessageRow = memo(function MessageRow({
+const COLLAPSED_LINES = 6;
+
+function UserMessageText({ text }: { text: string }) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el || text.length === 0) return;
+    const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight) || 23;
+    const previous = el.style.maxHeight;
+    el.style.maxHeight = "none";
+    const full = el.scrollHeight;
+    el.style.maxHeight = previous;
+    setOverflows(full > lineHeight * COLLAPSED_LINES + 1);
+  }, [text]);
+
+  const clamped = overflows && !expanded;
+
+  return (
+    <div>
+      <div className="relative">
+        <div ref={bodyRef} className={cn("user-message-text", clamped && "is-clamped")}>
+          {text}
+        </div>
+        {clamped ? <div className="user-message-fade" /> : null}
+      </div>
+      {overflows ? (
+        <button
+          type="button"
+          className="mt-1.5 inline-flex items-center gap-1 text-[12px] text-[var(--color-muted)] hover:text-[var(--color-text)]"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((open) => !open)}
+        >
+          {expanded ? "Show less" : "Read more"}
+          <ChevronDown size={13} className={cn("transition-transform duration-150", expanded && "rotate-180")} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function UserImages({ message }: { message: UIMessage }) {
+  if (!message.images || message.images.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {message.images.map((image) => (
+        <img
+          key={`${image.name || "img"}-${image.mimeType}-${image.data.slice(0, 32)}`}
+          src={`data:${image.mimeType};base64,${image.data}`}
+          alt={image.name || "attachment"}
+          className="max-h-40 max-w-full rounded-lg border border-[var(--color-line)] object-contain"
+          loading="lazy"
+        />
+      ))}
+    </div>
+  );
+}
+
+function UserTurn({
   message,
-  onResend,
-  canResend,
+  canEdit,
+  onEditMessage,
 }: {
   message: UIMessage;
-  onResend?: (rawIndex: number) => void;
-  canResend?: boolean;
+  canEdit?: boolean;
+  onEditMessage?: (rawIndex: number, text: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.text || "");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const editable = !!canEdit && typeof message.rawIndex === "number" && !!onEditMessage;
+  const canSubmit = draft.trim().length > 0 || (message.images?.length ?? 0) > 0;
+
+  useLayoutEffect(() => {
+    if (!editing) return;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    const end = el.value.length;
+    el.setSelectionRange(end, end);
+  }, [editing]);
+
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el || !editing) return;
+    const lineCount = draft.split("\n").length;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, lineCount), 280)}px`;
+  }, [editing, draft]);
+
+  const cancel = () => {
+    setDraft(message.text || "");
+    setEditing(false);
+  };
+
+  const submit = () => {
+    if (!canSubmit || typeof message.rawIndex !== "number" || !onEditMessage) return;
+    onEditMessage(message.rawIndex, draft.trim());
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="user-turn flex w-full min-w-0 justify-end">
+        <div className="user-message is-editing space-y-2 px-4 py-2.5 text-sm leading-relaxed">
+          <UserImages message={message} />
+          <textarea
+            ref={inputRef}
+            value={draft}
+            rows={1}
+            aria-label="Edit message"
+            className="user-edit-input w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--color-text)] outline-none"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                cancel();
+                return;
+              }
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+          />
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              className="rounded-lg px-2.5 py-1 text-[12px] text-[var(--color-muted)] hover:bg-white/[0.06] hover:text-[var(--color-text)]"
+              onClick={cancel}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-lg bg-zinc-100 px-2.5 py-1 text-[12px] font-medium text-zinc-950 hover:bg-white disabled:opacity-40"
+              disabled={!canSubmit}
+              onClick={submit}
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="user-turn flex w-full min-w-0 justify-end">
+      <div className="user-message space-y-2 px-4 py-2.5 text-sm leading-relaxed">
+        {editable ? (
+          <button type="button" className="user-edit" title="Edit" aria-label="Edit message" onClick={() => {
+            setDraft(message.text || "");
+            setEditing(true);
+          }}>
+            <Pencil size={13} />
+          </button>
+        ) : null}
+        <UserImages message={message} />
+        {message.text ? <UserMessageText text={message.text} /> : null}
+      </div>
+    </div>
+  );
+}
+
+const MessageRow = memo(function MessageRow({
+  message,
+  onEditMessage,
+  canEdit,
+}: {
+  message: UIMessage;
+  onEditMessage?: (rawIndex: number, text: string) => void;
+  canEdit?: boolean;
 }) {
   let content: ReactNode;
   if (message.role === "notice") {
@@ -259,38 +427,7 @@ const MessageRow = memo(function MessageRow({
       </div>
     );
   } else if (message.role === "user") {
-    content = (
-      <div className="flex flex-col items-end gap-1.5">
-        <div className="user-message max-w-[85%] space-y-2 px-4 py-2.5 text-sm leading-relaxed">
-          {message.images && message.images.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {message.images.map((image) => (
-                <img
-                  key={`${image.name || "img"}-${image.mimeType}-${image.data.slice(0, 32)}`}
-                  src={`data:${image.mimeType};base64,${image.data}`}
-                  alt={image.name || "attachment"}
-                  className="max-h-40 max-w-full rounded-lg border border-[var(--color-line)] object-contain"
-                  loading="lazy"
-                />
-              ))}
-            </div>
-          )}
-          {message.text ? <div className="whitespace-pre-wrap">{message.text}</div> : null}
-        </div>
-        {canResend && typeof message.rawIndex === "number" && onResend ? (
-          <button
-            type="button"
-            onClick={() => onResend(message.rawIndex!)}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--color-muted)] transition hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"
-            title="Resend"
-            aria-label="Resend message"
-          >
-            <RotateCcw size={11} />
-            Resend
-          </button>
-        ) : null}
-      </div>
-    );
+    content = <UserTurn message={message} canEdit={canEdit} onEditMessage={onEditMessage} />;
   } else if (message.role === "tool" || message.role === "toolResult") {
     content = <ToolCallCard message={message} />;
   } else if (message.isError) {

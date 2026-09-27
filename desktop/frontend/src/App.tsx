@@ -1010,14 +1010,15 @@ export default function App() {
       messageQueue={messageQueue}
       onRemoveQueued={removeQueued}
       onClearQueue={clearQueue}
-      onResend={async (rawIndex) => {
+      onEditMessage={async (rawIndex, text) => {
         setError(null);
+        followTranscriptRef.current = true;
         setMessages((prev) => {
           const cut = prev.findIndex((m) => m.role === "user" && m.rawIndex === rawIndex);
           return cut >= 0 ? prev.slice(0, cut) : prev;
         });
         try {
-          await ResendUserMessage(rawIndex);
+          await ResendUserMessage(rawIndex, text);
           streamingRef.current = true;
           setStreaming(true);
         } catch (resendError: unknown) {

@@ -107,10 +107,65 @@
 }
 
 .user-message {
+  position: relative;
+  width: fit-content;
+  max-width: min(85%, 100%);
+  min-width: 0;
+  overflow-wrap: anywhere;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 18px 18px 6px 18px;
   background: linear-gradient(180deg, #1c1c20, #16161a);
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.05);
+}
+.user-message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.user-message-text.is-clamped {
+  max-height: calc(1.625em * 6);
+  overflow: hidden;
+}
+.user-message-fade {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1.75rem;
+  pointer-events: none;
+  background: linear-gradient(to top, #16161a, transparent);
+}
+.user-message.is-editing {
+  width: min(85%, 100%);
+  max-width: min(85%, 100%);
+}
+.user-edit {
+  position: absolute;
+  top: 8px;
+  right: calc(100% + 6px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(16, 16, 18, 0.92);
+  color: var(--color-muted);
+  opacity: 0;
+}
+.user-turn:hover .user-edit,
+.user-turn:focus-within .user-edit {
+  opacity: 1;
+}
+.user-edit:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--color-text);
+}
+.user-edit-input {
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .assistant-message {
@@ -261,7 +316,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 /* The shell owns the focused-composer treatment. Avoid a second browser-style
    focus rectangle around the textarea while retaining the visible outer ring. */
-.composer-shell textarea:focus-visible {
+.composer-shell textarea:focus-visible,
+.user-edit-input:focus-visible {
   outline: none;
 }
 
@@ -685,6 +741,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 @media (hover: none), (pointer: coarse) {
   .response-actions { opacity: .75; }
   .session-rename-control { opacity: .75; }
+  .user-edit { opacity: .75; }
 }
 
 @keyframes pixel-on { 0%, 100% { opacity: .14; transform: scale(.85); } 45% { opacity: 1; transform: scale(1); } }

@@ -77,7 +77,7 @@ type Props = {
   onSetThinking: (level: string) => void;
   onSaveKey: (provider: string, key: string) => void;
   onProvidersChanged?: () => Promise<void> | void;
-  onResend?: (rawIndex: number) => void;
+  onEditMessage?: (rawIndex: number, text: string) => void;
   codexLogin?: CodexLoginHandlers;
   onDismissError: () => void;
 };
@@ -456,7 +456,7 @@ export function AppShell(props: Props) {
                   hasWorkspace={!!state.cwd}
                   onOpenFolder={props.onOpenFolder}
                   openFolderShortcut={`${shortcutPrefix}O`}
-                  onResend={props.onResend}
+                  onEditMessage={props.onEditMessage}
                   lastError={error}
                   onDismissError={props.onDismissError}
                 />

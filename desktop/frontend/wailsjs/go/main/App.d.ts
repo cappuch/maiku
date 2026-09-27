@@ -58,7 +58,7 @@ export function RemoveMCPServer(arg1:string):Promise<void>;
 
 export function RenameSession(arg1:string,arg2:string):Promise<void>;
 
-export function ResendUserMessage(arg1:number):Promise<void>;
+export function ResendUserMessage(arg1:number,arg2:string):Promise<void>;
 
 export function SetAPIKey(arg1:string,arg2:string):Promise<void>;
 
