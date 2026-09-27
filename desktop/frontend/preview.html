@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>maiku preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      const ok = (value) => () => Promise.resolve(value);
+      const app = new Proxy(
+        {
+          ListCustomProviders: ok([]),
+          ListMCPServers: ok([]),
+          GetAutoUpdateEnabled: ok(false),
+          GetConductorEnabled: ok(false),
+          ReloadMCP: ok(null),
+        },
+        {
+          get(target, prop) {
+            if (prop in target) return target[prop];
+            return ok(null);
+          },
+        },
+      );
+      window.go = { main: { App: app } };
+      window.runtime = new Proxy(
+        {},
+        { get: () => () => () => {} },
+      );
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="./src/preview.tsx" type="module"></script>
+  </body>
+</html>

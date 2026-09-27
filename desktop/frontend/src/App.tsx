@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 import {
   Abort,
@@ -37,7 +38,7 @@ import type {
 import { emptyUsage } from "./types";
 import { AppShell } from "./components/AppShell";
 
-const SCROLL_BOTTOM_THRESHOLD = 48;
+const SCROLL_BOTTOM_THRESHOLD = 2;
 
 let queueSeq = 0;
 function nextQueueId() {
@@ -135,12 +136,17 @@ export default function App() {
   const RATE_BUFFER = 16;
   const [error, setError] = useState<string | null>(null);
   const [retryingStartup, setRetryingStartup] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const reduceMotion = useReducedMotion();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Stream updates should follow the response only while the user is already
   // at the bottom. Keep this in a ref so every generated chunk does not render.
   const followTranscriptRef = useRef(true);
+  // Stick-to-bottom writes scrollTop, which fires scroll. Ignore those events
+  // so a pin cannot look like the user left the bottom and then fight them.
+  const programmaticScrollRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
   // Bumped on every refresh (and session switch) so a slow in-flight refresh
   // cannot overwrite a newer session after NewSession / OpenSession.
   const refreshGenRef = useRef(0);
@@ -707,32 +713,84 @@ export default function App() {
     };
   }, [isFocused, flushNextQueued]);
 
+  const pinToBottom = useCallback((element: HTMLElement) => {
+    programmaticScrollRef.current = true;
+    element.scrollTop = element.scrollHeight;
+    lastScrollTopRef.current = element.scrollTop;
+    requestAnimationFrame(() => {
+      programmaticScrollRef.current = false;
+    });
+  }, []);
+
   const onTranscriptScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    const top = el.scrollTop;
+    if (programmaticScrollRef.current) {
+      lastScrollTopRef.current = top;
+      return;
+    }
     const distanceFromBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
-    followTranscriptRef.current = distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD;
+    const movedUp = top < lastScrollTopRef.current - 0.5;
+    const movedDown = top > lastScrollTopRef.current + 0.5;
+    lastScrollTopRef.current = top;
+    // Any upward movement lets go immediately. Re-attach only when the reader
+    // travels back down to the latest line, so a short wheel tick cannot be
+    // yanked back while it is still within a few pixels of the bottom.
+    if (movedUp || distanceFromBottom > SCROLL_BOTTOM_THRESHOLD) {
+      followTranscriptRef.current = false;
+      return;
+    }
+    if (movedDown && distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD) {
+      followTranscriptRef.current = true;
+    }
+  }, []);
+
+  const releaseFollow = useCallback(() => {
+    followTranscriptRef.current = false;
   }, []);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el && followTranscriptRef.current) {
-      el.scrollTop = el.scrollHeight;
-    }
+    if (!el || !followTranscriptRef.current || programmaticScrollRef.current) return;
+    const distanceFromBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+    if (distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD) return;
+    pinToBottom(el);
   });
 
   // Live Markdown is throttled inside the transcript, so some height changes
-  // happen without a parent render. Follow those DOM updates as well.
+  // happen without a parent render. Follow those DOM updates only while the
+  // reader is still pinned to the latest line.
+  const transcriptReady = messages.length > 0 || streaming;
   useEffect(() => {
-    if (!state) return;
+    if (!state || !transcriptReady) return;
     const element = scrollRef.current;
     if (!element) return;
     const observer = new MutationObserver(() => {
-      if (followTranscriptRef.current) element.scrollTop = element.scrollHeight;
+      if (!followTranscriptRef.current || programmaticScrollRef.current) return;
+      pinToBottom(element);
     });
     observer.observe(element, { childList: true, characterData: true, subtree: true });
     return () => observer.disconnect();
-  }, [state]);
+  }, [state, transcriptReady, pinToBottom]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") {
+        followTranscriptRef.current = false;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const sendNow = useCallback(async (text: string, images: ImageAttachment[] = []): Promise<boolean> => {
     setError(null);
@@ -896,7 +954,12 @@ export default function App() {
     };
 
     return (
-      <div className="startup-screen">
+      <motion.div
+        className="startup-screen"
+        initial={reduceMotion ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: reduceMotion ? 0 : 0.35 }}
+      >
         <div className="startup-mark" aria-hidden>m</div>
         {error ? (
           <div className="startup-card" role="alert">
@@ -912,7 +975,7 @@ export default function App() {
             Loading your workspace…
           </div>
         )}
-      </div>
+      </motion.div>
     );
   }
 
@@ -935,6 +998,11 @@ export default function App() {
       error={error}
       scrollRef={scrollRef}
       onTranscriptScroll={onTranscriptScroll}
+      onReleaseFollow={releaseFollow}
+      onPinFollow={() => {
+        followTranscriptRef.current = true;
+      }}
+      programmaticScrollRef={programmaticScrollRef}
       recentDirs={state.recentDirs}
       onToggleSidebar={() => setSidebarOpen((v) => !v)}
       onToggleSettings={() => setSettingsOpen((v) => !v)}

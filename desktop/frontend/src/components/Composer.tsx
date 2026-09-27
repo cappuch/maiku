@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { AtSign, Command, Loader2, ListOrdered, Paperclip, Send, Square, X } from "lucide-react";
 import { CompletePath, PickFiles } from "../../wailsjs/go/main/App";
 import type { ImageAttachment, QueuedMessage, PathSuggestion } from "../types";
@@ -136,6 +137,7 @@ export function Composer({
   streaming,
   disabled,
   queue,
+  placement = "dock",
   onSend,
   onRemoveQueued,
   onClearQueue,
@@ -145,6 +147,7 @@ export function Composer({
   draftKey: string;
   streaming: boolean;
   disabled?: boolean;
+  placement?: "dock" | "hero";
   queue: QueuedMessage[];
   onSend: (text: string, images: ImageAttachment[]) => Promise<boolean>;
   onRemoveQueued: (id: string) => void;
@@ -390,9 +393,19 @@ export function Composer({
   };
 
   const canSend = (!!value.trim() || attachments.length > 0) && !disabled && !submitting;
+  const reduceMotion = useReducedMotion();
 
   return (
-    <div className="composer-dock relative z-30 px-5 pt-3 pb-4">
+    <motion.div
+      className={
+        placement === "dock"
+          ? "composer-dock relative z-30 px-6 pt-3 pb-4"
+          : "relative z-30 px-1 pt-1 pb-1"
+      }
+      initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.4, ease: [0.23, 1, 0.32, 1] }}
+    >
       <div className="relative mx-auto max-w-[760px]">
         {queue.length > 0 && (
           <div className="composer-queue mb-2" aria-label="Queued messages">
@@ -449,7 +462,7 @@ export function Composer({
                 className={
                   "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs " +
                   (i === suggestIndex
-                    ? "bg-[var(--color-accent)]/14 text-[var(--color-text)]"
+                    ? "bg-white/10 text-[var(--color-text)]"
                     : "text-[var(--color-muted)] hover:bg-white/[.045]")
                 }
               >
@@ -607,7 +620,7 @@ export function Composer({
                   type="button"
                   onClick={() => void stop()}
                   disabled={stopping}
-                  className="mb-0.5 rounded-xl bg-[var(--color-danger)]/15 p-2.5 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/25 disabled:opacity-50"
+                  className="mb-0.5 rounded-xl bg-white/10 p-2.5 text-zinc-100 hover:bg-white/[0.16] disabled:opacity-50"
                   title={stopping ? "Stopping…" : "Stop response (clears queue)"}
                   aria-label={stopping ? "Stopping response" : "Stop response"}
                 >
@@ -642,6 +655,6 @@ export function Composer({
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

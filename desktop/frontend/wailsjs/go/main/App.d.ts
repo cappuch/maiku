@@ -18,6 +18,8 @@ export function FinishOpenAICodexLogin():Promise<void>;
 
 export function GetAutoUpdateEnabled():Promise<boolean>;
 
+export function GetConductorEnabled():Promise<boolean>;
+
 export function GetMCPStatus():Promise<mcp.Status>;
 
 export function GetState():Promise<main.AppState>;
@@ -62,13 +64,11 @@ export function SetAPIKey(arg1:string,arg2:string):Promise<void>;
 
 export function SetAutoUpdateEnabled(arg1:boolean):Promise<void>;
 
+export function SetConductorEnabled(arg1:boolean):Promise<void>;
+
 export function SetMCPServerEnabled(arg1:string,arg2:boolean):Promise<void>;
 
 export function SetModel(arg1:string,arg2:string):Promise<void>;
-
-export function GetConductorEnabled():Promise<boolean>;
-
-export function SetConductorEnabled(arg1:boolean):Promise<void>;
 
 export function SetSubagentEnabled(arg1:boolean):Promise<void>;
 

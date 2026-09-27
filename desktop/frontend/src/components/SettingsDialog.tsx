@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { Code2, FlaskConical, KeyRound, Plus, RefreshCw, Search, Server, Trash2, X } from "lucide-react";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import {
@@ -53,6 +54,7 @@ export function SettingsDialog({
   const [codexError, setCodexError] = useState<string | null>(null);
   const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
   const dialogRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = useReducedMotion();
   const closeRef = useRef<() => void>(() => {});
 
   closeRef.current = () => {
@@ -133,12 +135,15 @@ export function SettingsDialog({
   const miruKey = keys.find((k) => k.provider === "miru");
 
   return (
-    <div
+    <motion.div
       ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="settings-title"
-      className="fixed inset-0 z-50 bg-[var(--color-panel)]"
+      className="fixed inset-0 z-50 bg-[var(--color-ink)]"
+      initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.28, ease: [0.23, 1, 0.32, 1] }}
     >
       <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
         <header
@@ -159,7 +164,7 @@ export function SettingsDialog({
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <nav aria-label="Settings sections" className="w-56 shrink-0 overflow-y-auto border-r border-[var(--color-line)] px-3 py-4">
+          <nav aria-label="Settings sections" className="w-56 shrink-0 overflow-y-auto border-r border-white/[0.06] bg-[#0c0c0e] px-3 py-4">
             <button type="button" onClick={() => setTab("experimental")} aria-current={tab === "experimental" ? "page" : undefined} className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "experimental" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
               <FlaskConical size={14} /> Experimental
             </button>
@@ -232,12 +237,7 @@ export function SettingsDialog({
                   ? "•••••••• (leave blank to keep)"
                   : "sk-…";
               return (
-                <div key={k.provider}>
-                {(index === 0 || filtered[index - 1].hasKey !== k.hasKey) && (
-                  <div className={`${index === 0 ? "" : "mt-8"} mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-muted)]`}>
-                    {k.hasKey ? "Configured" : "Available providers"}
-                  </div>
-                )}
+                <div key={k.provider} className={index > 0 && filtered[index - 1].hasKey !== k.hasKey ? "mt-8" : undefined}>
                 <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)]/35 p-4 transition-colors hover:border-[color-mix(in_srgb,var(--color-line)_65%,var(--color-muted))]">
                   <div className="mb-3 flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -250,7 +250,7 @@ export function SettingsDialog({
                         </div>
                       )}
                     </div>
-                    <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] ${k.hasKey ? "bg-emerald-500/10 text-emerald-400" : "bg-[var(--color-panel-2)] text-[var(--color-muted)]"}`}>
+                    <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] ${k.hasKey ? "bg-white/10 text-zinc-100" : "bg-white/[0.04] text-[var(--color-muted)]"}`}>
                       {k.hasKey ? "Connected" : "Not connected"}
                     </span>
                   </div>
@@ -280,7 +280,7 @@ export function SettingsDialog({
                         </p>
                       )}
                       {codexError && (
-                        <p className="text-[11px] text-red-400">{codexError}</p>
+                        <p className="text-[11px] text-[var(--color-danger)]">{codexError}</p>
                       )}
                     </div>
                   )}
@@ -400,7 +400,7 @@ export function SettingsDialog({
           </section>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1042,8 +1042,8 @@ function MCPSettingsPane() {
                           server.disabled
                             ? "bg-[var(--color-ink)] text-[var(--color-muted)]"
                             : server.connected
-                              ? "bg-emerald-500/15 text-emerald-400"
-                              : "bg-red-500/15 text-red-400"
+                              ? "bg-white/10 text-zinc-100"
+                              : "bg-[color-mix(in_srgb,var(--color-danger)_14%,transparent)] text-[var(--color-danger)]"
                         }`}
                       >
                         {server.disabled ? "Disabled" : server.connected ? "Connected" : "Error"}

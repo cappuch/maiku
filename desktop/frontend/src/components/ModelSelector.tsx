@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Check, ChevronDown } from "lucide-react";
 import type { ModelInfo } from "../types";
 import { cn } from "../lib/utils";
@@ -26,6 +27,15 @@ export function ModelSelector({
   const [q, setQ] = useState("");
   const thinkRootRef = useRef<HTMLDivElement>(null);
   const modelRootRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = useReducedMotion();
+  const menuMotion = reduceMotion
+    ? { initial: false as const, animate: { opacity: 1, y: 0 }, exit: { opacity: 1 } }
+    : {
+        initial: { opacity: 0, y: -6, scale: 0.98 },
+        animate: { opacity: 1, y: 0, scale: 1 },
+        exit: { opacity: 0, y: -4, scale: 0.98 },
+        transition: { duration: 0.16, ease: [0.23, 1, 0.32, 1] as const },
+      };
 
   const closeAll = useCallback(() => {
     setModelOpen(false);
@@ -73,8 +83,8 @@ export function ModelSelector({
             setThinkOpen((v) => !v);
           }}
           className={cn(
-            "flex items-center gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-panel-2)] px-2 py-1 text-xs text-[var(--color-muted)] hover:border-[var(--color-accent-dim)]",
-            thinkOpen && "border-[var(--color-accent-dim)]",
+            "flex items-center gap-1 rounded-full bg-white/[0.04] px-2.5 py-1 text-xs text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100",
+            thinkOpen && "bg-white/[0.08] text-zinc-100",
           )}
           title="Thinking level"
           aria-expanded={thinkOpen}
@@ -89,10 +99,12 @@ export function ModelSelector({
           />
         </button>
 
+        <AnimatePresence>
         {thinkOpen && (
-          <div
+          <motion.div
+            {...menuMotion}
             data-wails-no-drag
-            className="absolute right-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-xl"
+            className="absolute right-0 top-full z-50 mt-1.5 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#141416] py-1 shadow-[0_24px_70px_rgba(0,0,0,0.45)]"
           >
             {THINKING.map((t) => {
               const active = t === thinking;
@@ -106,8 +118,8 @@ export function ModelSelector({
                     setThinkOpen(false);
                   }}
                   className={cn(
-                    "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--color-panel-2)]",
-                    active && "bg-[var(--color-panel-2)]",
+                    "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-white/[0.06]",
+                    active && "bg-white/[0.06]",
                   )}
                 >
                   <span
@@ -118,12 +130,13 @@ export function ModelSelector({
                   >
                     think:{t}
                   </span>
-                  {active && <Check size={13} className="shrink-0 text-[var(--color-accent)]" />}
+                  {active && <Check size={13} className="shrink-0 text-zinc-200" />}
                 </button>
               );
             })}
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
 
       {/* Model picker */}
@@ -136,8 +149,8 @@ export function ModelSelector({
             setModelOpen((v) => !v);
           }}
           className={cn(
-            "flex max-w-[280px] items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-panel-2)] px-2.5 py-1.5 text-xs hover:border-[var(--color-accent-dim)]",
-            modelOpen && "border-[var(--color-accent-dim)]",
+            "flex max-w-[280px] items-center gap-1.5 rounded-full bg-white/[0.04] px-2.5 py-1 text-xs text-zinc-300 hover:bg-white/[0.08] hover:text-zinc-50",
+            modelOpen && "bg-white/[0.08] text-zinc-50",
           )}
           aria-haspopup="dialog"
           aria-expanded={modelOpen}
@@ -152,12 +165,14 @@ export function ModelSelector({
           />
         </button>
 
+        <AnimatePresence>
         {modelOpen && (
-          <div
+          <motion.div
+            {...menuMotion}
             data-wails-no-drag
             role="dialog"
             aria-label="Choose a model"
-            className="absolute right-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] shadow-xl"
+            className="absolute right-0 top-full z-50 mt-1.5 w-80 overflow-hidden rounded-xl border border-white/10 bg-[#141416] shadow-[0_24px_70px_rgba(0,0,0,0.45)]"
           >
             <input
               ref={(input) => input?.focus()}
@@ -165,7 +180,7 @@ export function ModelSelector({
               onChange={(e) => setQ(e.target.value)}
               aria-label="Search models"
               placeholder="Search models…"
-              className="w-full border-b border-[var(--color-line)] bg-transparent px-3 py-2 text-xs outline-none"
+              className="w-full border-b border-white/10 bg-transparent px-3 py-2.5 text-xs outline-none placeholder:text-zinc-500"
             />
             <div className="max-h-72 overflow-y-auto">
               {filtered.map((m) => {
@@ -180,8 +195,8 @@ export function ModelSelector({
                       closeAll();
                     }}
                     className={cn(
-                      "flex w-full flex-col px-3 py-2 text-left text-xs hover:bg-[var(--color-panel-2)]",
-                      active && "bg-[var(--color-panel-2)]",
+                      "flex w-full flex-col px-3 py-2 text-left text-xs hover:bg-white/[0.06]",
+                      active && "bg-white/[0.06]",
                     )}
                   >
                     <span className="font-mono text-[var(--color-text)]">
@@ -200,8 +215,9 @@ export function ModelSelector({
                 <p className="px-3 py-4 text-xs text-[var(--color-muted)]">No matches</p>
               )}
             </div>
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
     </div>
   );

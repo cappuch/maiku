@@ -14,6 +14,9 @@ export function Transcript({
   messages,
   scrollRef,
   onScroll,
+  onReleaseFollow,
+  onPinFollow,
+  programmaticScrollRef,
   streamText,
   streamThinking,
   thinkingStartedAt,
@@ -28,6 +31,9 @@ export function Transcript({
   messages: UIMessage[];
   scrollRef: RefObject<HTMLDivElement | null>;
   onScroll?: () => void;
+  onReleaseFollow?: () => void;
+  onPinFollow?: () => void;
+  programmaticScrollRef?: RefObject<boolean>;
   streamText?: string;
   streamThinking?: string;
   thinkingStartedAt?: number | null;
@@ -44,8 +50,9 @@ export function Transcript({
   const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE_SIZE);
   const prependScrollRef = useRef<{ height: number; top: number } | null>(null);
   const loadingEarlierRef = useRef(false);
-  const loadEarlierRef = useRef<HTMLButtonElement>(null);
   const wasStreaming = useRef(!!streaming);
+  const touchYRef = useRef<number | null>(null);
+  const prevScrollTopRef = useRef(0);
   const showStream = !!streamText?.length;
   const showThinking = !!streamThinking?.trim();
 
@@ -77,57 +84,52 @@ export function Transcript({
 
   const visibleStart = Math.max(0, messages.length - historyLimit);
 
+  const showEarlier = useCallback(() => {
+    const element = scrollRef.current;
+    if (!element || loadingEarlierRef.current || visibleStart === 0) return;
+    loadingEarlierRef.current = true;
+    prependScrollRef.current = { height: element.scrollHeight, top: element.scrollTop };
+    setHistoryLimit((current) => current + HISTORY_PAGE_SIZE);
+  }, [scrollRef, visibleStart]);
+
   const handleScroll = () => {
     const element = scrollRef.current;
-    if (element) {
-      const distance = element.scrollHeight - element.clientHeight - element.scrollTop;
-      setShowJump(distance > JUMP_THRESHOLD);
-    }
+    if (!element) return;
+    const top = element.scrollTop;
+    const distance = element.scrollHeight - element.clientHeight - top;
+    setShowJump(distance > JUMP_THRESHOLD);
+    const userMovedUp = !programmaticScrollRef?.current && top < prevScrollTopRef.current - 1;
+    prevScrollTopRef.current = top;
+    if (userMovedUp && top < 320 && visibleStart > 0) showEarlier();
     onScroll?.();
   };
 
   const jumpToLatest = () => {
     const element = scrollRef.current;
     if (!element) return;
+    if (programmaticScrollRef) programmaticScrollRef.current = true;
     element.scrollTop = element.scrollHeight;
+    prevScrollTopRef.current = element.scrollTop;
     setShowJump(false);
-    onScroll?.();
+    onPinFollow?.();
+    requestAnimationFrame(() => {
+      if (programmaticScrollRef) programmaticScrollRef.current = false;
+    });
   };
-
-  const showEarlier = useCallback(() => {
-    const element = scrollRef.current;
-    if (!element || loadingEarlierRef.current) return;
-    loadingEarlierRef.current = true;
-    prependScrollRef.current = { height: element.scrollHeight, top: element.scrollTop };
-    setHistoryLimit((current) => current + HISTORY_PAGE_SIZE);
-  }, [scrollRef]);
-
-  // Fetch the preceding window before the user actually reaches the top. The
-  // layout effect below restores the visual anchor after variable-height
-  // Markdown/tool rows are prepended.
-  useEffect(() => {
-    const root = scrollRef.current;
-    const target = loadEarlierRef.current;
-    if (!root || !target || visibleStart === 0) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) showEarlier();
-      },
-      { root, rootMargin: "320px 0px 0px" },
-    );
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [scrollRef, showEarlier, visibleStart]);
 
   useLayoutEffect(() => {
     const pending = prependScrollRef.current;
     const element = scrollRef.current;
     if (!pending || !element) return;
-    element.scrollTop = pending.top + element.scrollHeight - pending.height;
+    if (programmaticScrollRef) programmaticScrollRef.current = true;
+    const nextTop = pending.top + element.scrollHeight - pending.height;
+    element.scrollTop = nextTop;
+    prevScrollTopRef.current = element.scrollTop;
     prependScrollRef.current = null;
     loadingEarlierRef.current = false;
-    onScroll?.();
+    requestAnimationFrame(() => {
+      if (programmaticScrollRef) programmaticScrollRef.current = false;
+    });
   });
 
   // Stream text changes frequently while finalized history usually does not.
@@ -158,6 +160,20 @@ export function Transcript({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        onWheel={(event) => {
+          const element = scrollRef.current;
+          if (!element || event.deltaY >= 0 || element.scrollTop <= 0) return;
+          onReleaseFollow?.();
+        }}
+        onTouchStart={(event) => {
+          touchYRef.current = event.touches[0]?.clientY ?? null;
+        }}
+        onTouchMove={(event) => {
+          const y = event.touches[0]?.clientY;
+          if (y == null || touchYRef.current == null) return;
+          if (y > touchYRef.current + 4) onReleaseFollow?.();
+          touchYRef.current = y;
+        }}
         className="transcript h-full overflow-y-auto px-6 py-7"
       >
         {isEmpty && !hasWorkspace && onOpenFolder ? (
@@ -172,7 +188,6 @@ export function Transcript({
         <div className="mx-auto flex max-w-[760px] flex-col gap-5">
           {visibleStart > 0 ? (
             <button
-              ref={loadEarlierRef}
               type="button"
               className="mx-auto rounded-full border border-[var(--color-line)] bg-[var(--color-panel)] px-3 py-1.5 text-xs text-[var(--color-muted)] hover:border-[var(--color-accent-dim)] hover:text-[var(--color-text)]"
               onClick={showEarlier}
@@ -191,14 +206,14 @@ export function Transcript({
           {streaming && !showThinking && !showStream && <LoadingGrid />}
           {showStream && (
             <div className="flex justify-start" aria-live="off">
-              <div className="assistant-message w-full max-w-[90%]">
+              <div className="assistant-message w-full">
                 <StreamingText content={streamText ?? ""} />
               </div>
             </div>
           )}
           {renderedMessages.after}
           {lastError ? (
-            <div role="alert" className="flex items-start justify-between gap-3 px-1 text-sm text-[var(--color-danger)]">
+            <div role="alert" className="flex items-start justify-between gap-3 rounded-xl border border-[color-mix(in_srgb,var(--color-danger)_28%,transparent)] bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] px-3 py-2.5 text-sm text-[var(--color-danger)]">
               <p className="min-w-0 flex-1 whitespace-pre-wrap">{lastError}</p>
               {onDismissError ? (
                 <button type="button" className="shrink-0 underline" onClick={onDismissError}>
@@ -216,9 +231,9 @@ export function Transcript({
           className="jump-latest"
           onClick={jumpToLatest}
           aria-label="Jump to latest message"
+          title="Latest"
         >
-          <ArrowDown size={14} />
-          Latest
+          <ArrowDown size={15} />
         </button>
       )}
     </div>
@@ -292,7 +307,7 @@ const MessageRow = memo(function MessageRow({
         {message.thinking ? <ThinkingLive thinking={message.thinking} live={false} /> : null}
         {(message.text || message.streaming) && (
           <div className="assistant-response group flex justify-start">
-            <div className="assistant-message w-full max-w-[90%]">
+            <div className="assistant-message w-full">
               <Markdown content={message.text || ""} streaming={message.streaming} />
               {message.text && !message.streaming ? <ResponseActions text={message.text} /> : null}
             </div>

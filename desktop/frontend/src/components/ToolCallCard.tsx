@@ -50,7 +50,7 @@ function SubagentCard({ message }: { message: UIMessage }) {
   return (
     <div
       className={cn(
-        "w-full max-w-[680px] overflow-hidden rounded-xl border bg-[color-mix(in_srgb,var(--color-panel)_82%,transparent)] transition-colors",
+        "w-full overflow-hidden rounded-xl border bg-[color-mix(in_srgb,var(--color-panel)_82%,transparent)] transition-colors",
         status === "error"
           ? "border-[color-mix(in_srgb,var(--color-danger)_38%,var(--color-line))]"
           : "border-[var(--color-line)] hover:border-[color-mix(in_srgb,var(--color-accent)_30%,var(--color-line))]",
@@ -100,15 +100,11 @@ function SubagentCard({ message }: { message: UIMessage }) {
 
       {open ? (
         <div className="border-t border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-ink)_45%,transparent)] px-3 py-3">
-          <div className="mb-3">
-            <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">Delegated task</div>
-            <div className="whitespace-pre-wrap text-xs leading-relaxed text-[var(--color-text)]">{task}</div>
-          </div>
+          <div className="mb-3 whitespace-pre-wrap text-xs leading-relaxed text-[var(--color-text)]">{task}</div>
 
           <div className="mb-3">
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">Activity</span>
-              <span className="text-[9px] text-[var(--color-muted)]">{activities.length} action{activities.length === 1 ? "" : "s"}</span>
+            <div className="mb-1.5 text-right text-[11px] text-[var(--color-muted)]">
+              {activities.length} action{activities.length === 1 ? "" : "s"}
             </div>
             <div ref={activityRef} className="max-h-64 space-y-1.5 overflow-y-auto rounded-lg border border-[var(--color-line)] bg-[#0d0d0f] p-2">
               {activities.length > 0 ? activities.map((activity) => (
@@ -124,7 +120,6 @@ function SubagentCard({ message }: { message: UIMessage }) {
 
           {(message.subagent?.thinking || message.subagent?.text) && status === "running" ? (
             <div className="mb-3 rounded-lg border border-[var(--color-line)] bg-[#0d0d0f] p-2.5">
-              <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">Live notes</div>
               <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-[var(--color-muted)]">
                 {message.subagent.text || message.subagent.thinking}
               </pre>
@@ -139,7 +134,6 @@ function SubagentCard({ message }: { message: UIMessage }) {
 
           {report ? (
             <div>
-              <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">Final report</div>
               <Markdown content={report} className="text-xs" />
             </div>
           ) : null}
@@ -351,7 +345,7 @@ function EditCard({ message, path }: { message: UIMessage; path: string }) {
                   className={cn(
                     "flex min-h-[1.45em]",
                     row.left?.kind === "del"
-                      ? "bg-[color-mix(in_srgb,var(--color-danger)_14%,transparent)] text-[var(--color-danger)]"
+                      ? "bg-white/[0.04] text-zinc-500"
                       : "text-[var(--color-muted)]",
                   )}
                 >
@@ -395,8 +389,8 @@ function SideCell({
       className={cn(
         "flex min-h-[1.45em] border-[var(--color-line)]",
         side === "left" ? "border-r" : "",
-        kind === "del" && "bg-[color-mix(in_srgb,var(--color-danger)_14%,transparent)] text-[var(--color-danger)]",
-        kind === "add" && "bg-[color-mix(in_srgb,var(--color-ok)_14%,transparent)] text-[var(--color-ok)]",
+        kind === "del" && "bg-white/[0.04] text-zinc-500",
+        kind === "add" && "bg-white/[0.08] text-zinc-50",
         kind === "ctx" && "text-[var(--color-muted)]",
         kind === "empty" && "bg-transparent",
       )}
@@ -429,7 +423,7 @@ function GenericToolCard({ message }: { message: UIMessage }) {
       {open && (
         <div className="space-y-2 font-mono text-[11px] text-[var(--color-muted)]">
           <div>
-            <div className="mb-1 text-[10px] tracking-wide">args</div>
+            <div className="mb-1 text-[11px] text-[var(--color-muted)]">Args</div>
             <pre className="overflow-x-auto whitespace-pre-wrap text-[var(--color-text)]">{args}</pre>
           </div>
           {message.images && message.images.length > 0 && (
@@ -446,7 +440,7 @@ function GenericToolCard({ message }: { message: UIMessage }) {
           )}
           {message.text && (
             <div>
-              <div className="mb-1 text-[10px] tracking-wide">result</div>
+              <div className="mb-1 text-[11px] text-[var(--color-muted)]">Result</div>
               <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-[var(--color-text)]">
                 {message.text}
               </pre>

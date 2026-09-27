@@ -30,6 +30,10 @@ export function GetAutoUpdateEnabled() {
   return window['go']['main']['App']['GetAutoUpdateEnabled']();
 }
 
+export function GetConductorEnabled() {
+  return window['go']['main']['App']['GetConductorEnabled']();
+}
+
 export function GetMCPStatus() {
   return window['go']['main']['App']['GetMCPStatus']();
 }
@@ -118,20 +122,16 @@ export function SetAutoUpdateEnabled(arg1) {
   return window['go']['main']['App']['SetAutoUpdateEnabled'](arg1);
 }
 
+export function SetConductorEnabled(arg1) {
+  return window['go']['main']['App']['SetConductorEnabled'](arg1);
+}
+
 export function SetMCPServerEnabled(arg1, arg2) {
   return window['go']['main']['App']['SetMCPServerEnabled'](arg1, arg2);
 }
 
 export function SetModel(arg1, arg2) {
   return window['go']['main']['App']['SetModel'](arg1, arg2);
-}
-
-export function GetConductorEnabled() {
-  return window['go']['main']['App']['GetConductorEnabled']();
-}
-
-export function SetConductorEnabled(arg1) {
-  return window['go']['main']['App']['SetConductorEnabled'](arg1);
 }
 
 export function SetSubagentEnabled(arg1) {

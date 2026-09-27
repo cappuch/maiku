@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type RefObject } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Check,
   ChevronDown,
   FolderOpen,
+  KeyRound,
+  PanelLeft,
   Pencil,
   Plus,
   Settings,
@@ -17,13 +20,23 @@ import type {
   UIMessage,
   UsageTotals,
 } from "../types";
-import { cn } from "../lib/utils";
+import { cn, formatCost, formatTokens } from "../lib/utils";
+import { easeOut } from "../lib/motion";
 import { ModelSelector } from "./ModelSelector";
 import { ClickAway } from "./ClickAway";
-import { useClickAway } from "./useClickAway";
 import { SettingsDialog, type CodexLoginHandlers } from "./SettingsDialog";
 import { Transcript } from "./Transcript";
 import { Composer } from "./Composer";
+import { Button } from "./ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { Separator } from "./ui/separator";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 type Props = {
   state: AppState;
@@ -43,6 +56,9 @@ type Props = {
   error: string | null;
   scrollRef: RefObject<HTMLDivElement | null>;
   onTranscriptScroll: () => void;
+  onReleaseFollow?: () => void;
+  onPinFollow?: () => void;
+  programmaticScrollRef?: RefObject<boolean>;
   recentDirs: string[];
   onToggleSidebar: () => void;
   onToggleSettings: () => void;
@@ -69,48 +85,47 @@ type Props = {
 export function AppShell(props: Props) {
   const {
     state,
+    usage,
     messages,
     sessions,
     models,
     keys,
     streaming,
+    streamingSessionIds,
     streamText,
     streamThinking,
     thinkingStartedAt,
+    tokensPerSec,
+    sidebarOpen,
     settingsOpen,
     error,
     scrollRef,
   } = props;
 
+  const reduce = useReducedMotion();
   const isMac = useMemo(() => /mac|iphone|ipad/i.test(navigator.platform), []);
   const shortcutPrefix = isMac ? "⌘" : "Ctrl+";
 
-  const [dirMenuOpen, setDirMenuOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [settingsTab, setSettingsTab] = useState<"providers" | "miru" | "mcp">("providers");
-  const dirMenuRef = useRef<HTMLDivElement>(null);
-  const historyRef = useRef<HTMLDivElement>(null);
 
-  useClickAway(dirMenuOpen, dirMenuRef, () => setDirMenuOpen(false));
-  useClickAway(historyOpen, historyRef, () => setHistoryOpen(false));
-
-  // Close popovers on Escape.
   useEffect(() => {
-    if (!dirMenuOpen && !historyOpen && !ctxMenu && !editingPath) return;
+    if (!ctxMenu && !editingPath) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setDirMenuOpen(false);
-      setHistoryOpen(false);
       setCtxMenu(null);
       setEditingPath(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dirMenuOpen, historyOpen, ctxMenu, editingPath]);
+  }, [ctxMenu, editingPath]);
 
-  // Desktop shortcuts keep the most common workspace actions one keystroke away.
+  const toggleSettings = useCallback(() => {
+    setSettingsTab("providers");
+    props.onToggleSettings();
+  }, [props]);
+
   useEffect(() => {
     const onShortcut = (event: KeyboardEvent) => {
       const primaryModifier = isMac
@@ -130,7 +145,7 @@ export function AppShell(props: Props) {
         props.onOpenFolder();
       } else if (key === "b") {
         event.preventDefault();
-        setHistoryOpen((open) => !open);
+        props.onToggleSidebar();
       } else if (key === ",") {
         event.preventDefault();
         toggleSettings();
@@ -138,13 +153,13 @@ export function AppShell(props: Props) {
     };
     window.addEventListener("keydown", onShortcut);
     return () => window.removeEventListener("keydown", onShortcut);
-  }, [props, settingsOpen, isMac]);
+  }, [props, settingsOpen, isMac, toggleSettings]);
 
   const folderSessions = sessions.filter(
     (s) => !state.cwd || s.cwd === state.cwd || s.path.includes(encodeCwd(state.cwd)),
   );
 
-  const openCtxMenu = (e: React.MouseEvent, path: string) => {
+  const openCtxMenu = (e: MouseEvent, path: string) => {
     e.preventDefault();
     setCtxMenu({
       x: Math.min(e.clientX, window.innerWidth - 190),
@@ -156,15 +171,6 @@ export function AppShell(props: Props) {
   const openSettings = (tab: "providers" | "miru" | "mcp" = "providers") => {
     setSettingsTab(tab);
     if (!settingsOpen) props.onToggleSettings();
-  };
-
-  const toggleSettings = () => {
-    if (settingsOpen) {
-      setSettingsTab("providers");
-      props.onToggleSettings();
-      return;
-    }
-    openSettings("providers");
   };
 
   const startRename = (path: string) => {
@@ -181,140 +187,161 @@ export function AppShell(props: Props) {
     setEditingPath(null);
   };
 
+  const shellMotion = reduce
+    ? { initial: false as const, animate: { opacity: 1 } }
+    : { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.35, ease: easeOut } };
+
   return (
-    <div className="app-shell flex h-full flex-col bg-[var(--color-ink)] text-[var(--color-text)]">
-      {/* Title bar — brand/folder left, model controls right. Vertically centered. */}
-      <header
-        data-wails-drag
-        className={cn("titlebar-drag relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-line)] pr-3", isMac ? "pl-[96px]" : "pl-3")}
+    <TooltipProvider>
+      <motion.div
+        {...shellMotion}
+        className="app-shell flex h-full flex-col text-zinc-100"
       >
-        <div className="titlebar-no-drag flex min-w-0 items-center gap-1.5" data-wails-no-drag>
-          <div className="relative min-w-0">
-            <button
-              type="button"
-              onClick={() => setDirMenuOpen((v) => !v)}
-              className={cn(
-                "flex max-w-[280px] items-center gap-1 rounded-md px-1.5 py-1 text-sm font-semibold leading-none tracking-tight transition-colors hover:bg-[var(--color-panel-2)]",
-                dirMenuOpen && "bg-[var(--color-panel-2)]",
-              )}
-              title={state.cwd || "Open a folder"}
-              aria-expanded={dirMenuOpen}
-            >
-              <span className="shrink-0">maiku</span>
-              <span className="shrink-0 text-[var(--color-muted)]">/</span>
-              <span className="truncate text-[var(--color-muted)]">
-                {state.folderName || "no folder"}
-              </span>
-              <ChevronDown
-                size={13}
-                strokeWidth={2}
-                className={cn(
-                  "shrink-0 text-[var(--color-muted)] transition-transform",
-                  dirMenuOpen && "rotate-180",
-                )}
-                aria-hidden
-              />
-            </button>
-            {dirMenuOpen && (
-              <div
-                ref={dirMenuRef}
-                className="titlebar-no-drag absolute left-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-xl"
-              >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDirMenuOpen(false);
-                      props.onOpenFolder();
-                    }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-[var(--color-panel-2)]"
-                  >
-                    <FolderOpen size={14} className="text-[var(--color-accent)]" />
-                    Open folder…
-                    <kbd className="ml-auto text-[10px] text-[var(--color-muted)]">{shortcutPrefix}O</kbd>
-                  </button>
-                  <div className="mx-2 border-t border-[var(--color-line)]" />
-                  <p className="px-3 pt-2 pb-1 text-[10px] font-medium tracking-wide text-[var(--color-muted)]">
-                    Recent folders
-                  </p>
-                  {state.recentDirs.length === 0 && (
-                    <p className="px-3 py-2 text-xs text-[var(--color-muted)]">
-                      No recent folders yet
-                    </p>
-                  )}
-                  {state.recentDirs.map((d: string) => {
-                    const active = d === state.cwd;
-                    return (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => {
-                          setDirMenuOpen(false);
-                          if (!active) props.onOpenRecentFolder(d);
-                        }}
-                        className={cn(
-                          "flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[var(--color-panel-2)]",
-                          active && "bg-[var(--color-panel-2)]",
-                        )}
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-medium">
-                            {basename(d) || d}
-                          </span>
-                          <span className="block truncate font-mono text-[10px] text-[var(--color-muted)]">
-                            {d}
-                          </span>
-                        </span>
-                        {active && (
-                          <Check size={13} className="shrink-0 text-[var(--color-accent)]" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+        <header
+          data-wails-drag
+          className={cn(
+            "titlebar-drag relative z-40 flex h-12 shrink-0 items-center gap-1 border-b border-white/[0.06] pr-2",
+            isMac ? "pl-[92px]" : "pl-2",
+          )}
+        >
+          <div className="flex min-w-0 items-center gap-0.5" data-wails-no-drag>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={props.onToggleSidebar}
+                  aria-pressed={sidebarOpen}
+                  aria-label={sidebarOpen ? "Hide sessions" : "Show sessions"}
+                >
+                  <PanelLeft size={16} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Sessions ({shortcutPrefix}B)</TooltipContent>
+            </Tooltip>
+            {!sidebarOpen && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" onClick={props.onNewSession} aria-label="New chat">
+                    <Plus size={16} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>New chat ({shortcutPrefix}N)</TooltipContent>
+              </Tooltip>
             )}
-          </div>
-          <div className="relative" ref={historyRef}>
-            <button
-              type="button"
-              onClick={() => setHistoryOpen((open) => !open)}
-              className={cn(
-                "rounded-md px-2 py-1 text-xs text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]",
-                historyOpen && "bg-[var(--color-panel-2)] text-[var(--color-text)]",
-              )}
-              aria-expanded={historyOpen}
-            >
-              History
-            </button>
-            {historyOpen && (
-              <div className="titlebar-no-drag absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-xl">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => {
-                    setHistoryOpen(false);
-                    props.onNewSession();
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[var(--color-panel-2)]"
+                  className="flex max-w-[280px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm leading-none tracking-tight hover:bg-white/[0.05]"
+                  title={state.cwd || "Open a folder"}
                 >
-                  <Plus size={14} />
-                  New
-                  <kbd className="ml-auto text-[10px] text-[var(--color-muted)]">{shortcutPrefix}N</kbd>
+                  <span className="font-medium text-zinc-100">maiku</span>
+                  <span className="text-zinc-600">/</span>
+                  <span className="truncate text-zinc-400">{state.folderName || "no folder"}</span>
+                  <ChevronDown size={13} className="shrink-0 text-zinc-500" />
                 </button>
-                <div className="mx-2 border-t border-[var(--color-line)]" />
-                <div className="max-h-80 overflow-y-auto py-1">
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-80">
+                <DropdownMenuItem
+                  onSelect={() => {
+                    props.onOpenFolder();
+                  }}
+                >
+                  <FolderOpen size={14} className="text-zinc-300" />
+                  Open folder…
+                  <span className="ml-auto font-mono text-[10px] text-zinc-500">{shortcutPrefix}O</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {state.recentDirs.length === 0 && (
+                  <DropdownMenuItem disabled>No recent folders yet</DropdownMenuItem>
+                )}
+                {state.recentDirs.map((d) => {
+                  const active = d === state.cwd;
+                  return (
+                    <DropdownMenuItem
+                      key={d}
+                      onSelect={() => {
+                        if (!active) props.onOpenRecentFolder(d);
+                      }}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{basename(d) || d}</span>
+                        <span className="block truncate font-mono text-[10px] text-zinc-500">{d}</span>
+                      </span>
+                      {active && <Check size={13} className="shrink-0 text-zinc-200" />}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <div className="min-w-0 flex-1" />
+
+          <div className="flex shrink-0 items-center gap-1.5" data-wails-no-drag>
+            <ModelSelector
+              models={models}
+              provider={state.provider}
+              modelId={state.modelId}
+              thinking={state.thinking}
+              onSetModel={props.onSetModel}
+              onSetThinking={props.onSetThinking}
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleSettings}
+                  aria-label="Open settings"
+                >
+                  <Settings size={15} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Settings ({shortcutPrefix},)</TooltipContent>
+            </Tooltip>
+          </div>
+        </header>
+
+        <div className="flex min-h-0 flex-1">
+          <motion.aside
+            initial={false}
+            animate={{ width: sidebarOpen ? 272 : 0 }}
+            transition={reduce ? { duration: 0 } : { type: "spring", bounce: 0, duration: 0.42 }}
+            className={cn("shrink-0 overflow-hidden", sidebarOpen && "border-r border-white/[0.06]")}
+            aria-hidden={!sidebarOpen}
+            inert={!sidebarOpen ? true : undefined}
+          >
+            <div className="flex h-full w-[272px] min-w-0 flex-col overflow-hidden bg-[#0c0c0e]">
+              <div className="px-3 pt-3">
+                <Button type="button" className="w-full" onClick={props.onNewSession}>
+                  <Plus size={14} />
+                  New chat
+                  <kbd className="ml-auto font-mono text-[10px] font-normal text-black/45">{shortcutPrefix}N</kbd>
+                </Button>
+              </div>
+              <div className="mt-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+                <div className="flex w-full min-w-0 flex-col gap-0.5 px-2 pb-3">
                   {folderSessions.length === 0 && (
-                    <p className="px-3 py-2 text-xs text-[var(--color-muted)]">No sessions yet</p>
+                    <p className="px-2 py-6 text-center text-xs leading-5 text-zinc-500">
+                      No sessions in this folder yet.
+                    </p>
                   )}
                   {folderSessions.map((s) => {
                     const active = s.id === state.sessionId;
                     const editing = editingPath === s.path;
+                    const live = streamingSessionIds.includes(s.id);
                     return (
-                      <div key={s.path} className={cn("group relative", active && "bg-[var(--color-panel-2)]")}>
+                      <div key={s.path} className="group relative min-w-0">
                         {editing ? (
                           <input
                             ref={(input) => input?.focus()}
                             defaultValue={s.name || s.preview || s.id.slice(0, 8)}
                             aria-label="Session name"
-                            className="w-full border border-[var(--color-accent-dim)] bg-[var(--color-panel-2)] px-3 py-1.5 text-xs outline-none"
+                            className="w-full rounded-lg border border-white/20 bg-white/[0.04] px-2.5 py-2 text-xs outline-none"
                             onKeyDown={(e) => {
                               if (e.key === "Enter") e.currentTarget.blur();
                               else if (e.key === "Escape") {
@@ -333,21 +360,28 @@ export function AppShell(props: Props) {
                         ) : (
                           <button
                             type="button"
-                            onClick={() => {
-                              setHistoryOpen(false);
-                              props.onOpenSession(s.path);
-                            }}
+                            onClick={() => props.onOpenSession(s.path)}
+                            onDoubleClick={() => startRename(s.path)}
                             onContextMenu={(e) => openCtxMenu(e, s.path)}
-                            className="flex w-full items-center px-3 py-2 pr-8 text-left hover:bg-[var(--color-panel-2)]"
+                            title={s.name || s.preview || s.id.slice(0, 8)}
+                            className={cn(
+                              "flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg px-2.5 py-2 text-left transition-colors",
+                              active
+                                ? "bg-white/[0.07] text-zinc-50"
+                                : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-100",
+                            )}
                           >
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-xs">
+                            <span className="min-w-0 flex-1 overflow-hidden">
+                              <span className="block truncate text-[13px]">
                                 {s.name || s.preview || s.id.slice(0, 8)}
                               </span>
-                              <span className="block truncate text-[10px] text-[var(--color-muted)]">
+                              <span className="mt-0.5 block truncate font-mono text-[10px] text-zinc-500">
                                 {formatTime(s.modTime || s.timestamp)}
                               </span>
                             </span>
+                            {live && (
+                              <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-zinc-200" title="Streaming" />
+                            )}
                           </button>
                         )}
                       </div>
@@ -355,147 +389,145 @@ export function AppShell(props: Props) {
                   })}
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <ModelSelector
-            models={models}
-            provider={state.provider}
-            modelId={state.modelId}
-            thinking={state.thinking}
-            onSetModel={props.onSetModel}
-            onSetThinking={props.onSetThinking}
-          />
-          <button
-            type="button"
-            data-wails-no-drag
-            onClick={toggleSettings}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"
-            title={`Settings (${shortcutPrefix},)`}
-            aria-label="Open settings"
-          >
-            <Settings size={15} />
-          </button>
-        </div>
-      </header>
+              <Separator className="bg-white/[0.06]" />
+              <div className="flex items-center justify-between gap-3 px-4 py-3 text-[11px] text-zinc-500">
+                {usage.totalTokens > 0 ? (
+                  <>
+                    <span className="min-w-0 truncate">
+                      {formatTokens(usage.totalTokens)} tokens
+                      {streaming && tokensPerSec > 0 ? (
+                        <span className="font-mono text-zinc-400"> · {Math.round(tokensPerSec)} tok/s</span>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 font-mono text-zinc-400">{formatCost(usage.totalCost || usage.cost)}</span>
+                  </>
+                ) : (
+                  <span className="text-zinc-600">{shortcutPrefix}N new · {shortcutPrefix}B sessions</span>
+                )}
+              </div>
+            </div>
+          </motion.aside>
 
-      <main className="flex min-h-0 flex-1 flex-col">
-        {!state.hasApiKey && (
-          <button
-            type="button"
-            onClick={() => openSettings("providers")}
-            className="px-4 py-2 text-left text-sm text-[var(--color-accent)]"
-          >
-            Add an API key in Settings to start.
-          </button>
-        )}
-
-        {messages.length === 0 && !streaming ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center px-6 pb-24">
-            <div className="w-full max-w-xl">
-              {!state.cwd && (
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {!state.hasApiKey && (
+              <div className="flex justify-center px-4 pt-3">
                 <button
                   type="button"
-                  onClick={props.onOpenFolder}
-                  className="mb-3 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                  onClick={() => openSettings("providers")}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-white/[0.08] hover:text-white"
                 >
-                  Open a folder
+                  <KeyRound size={12} />
+                  Add an API key to start
                 </button>
-              )}
-              <Composer
-                draftKey={state.sessionId || state.cwd || "new"}
-                streaming={streaming}
-                queue={props.messageQueue}
-                onSend={props.onSend}
-                onRemoveQueued={props.onRemoveQueued}
-                onClearQueue={props.onClearQueue}
-                onCommand={props.onCommand}
-                onAbort={props.onAbort}
-                disabled={!state.cwd}
+              </div>
+            )}
+
+            {messages.length === 0 && !streaming ? (
+              <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 pb-8">
+                <div className="w-full max-w-[760px]">
+                  <Composer
+                    placement="hero"
+                    draftKey={state.sessionId || state.cwd || "new"}
+                    streaming={streaming}
+                    queue={props.messageQueue}
+                    onSend={props.onSend}
+                    onRemoveQueued={props.onRemoveQueued}
+                    onClearQueue={props.onClearQueue}
+                    onCommand={props.onCommand}
+                    onAbort={props.onAbort}
+                    disabled={!state.cwd}
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                <Transcript
+                  key={state.sessionId || state.cwd || "new"}
+                  messages={messages}
+                  scrollRef={scrollRef}
+                  onScroll={props.onTranscriptScroll}
+                  onReleaseFollow={props.onReleaseFollow}
+                  onPinFollow={props.onPinFollow}
+                  programmaticScrollRef={props.programmaticScrollRef}
+                  streamText={streamText}
+                  streamThinking={streamThinking}
+                  thinkingStartedAt={thinkingStartedAt}
+                  streaming={streaming}
+                  hasWorkspace={!!state.cwd}
+                  onOpenFolder={props.onOpenFolder}
+                  openFolderShortcut={`${shortcutPrefix}O`}
+                  onResend={props.onResend}
+                  lastError={error}
+                  onDismissError={props.onDismissError}
+                />
+                <Composer
+                  draftKey={state.sessionId || state.cwd || "new"}
+                  streaming={streaming}
+                  queue={props.messageQueue}
+                  onSend={props.onSend}
+                  onRemoveQueued={props.onRemoveQueued}
+                  onClearQueue={props.onClearQueue}
+                  onCommand={props.onCommand}
+                  onAbort={props.onAbort}
+                  disabled={!state.cwd}
+                />
+              </>
+            )}
+          </main>
+        </div>
+
+        <AnimatePresence>
+          {ctxMenu && (
+            <>
+              <ClickAway
+                onClose={() => setCtxMenu(null)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setCtxMenu(null);
+                }}
               />
-            </div>
-          </div>
-        ) : (
-          <>
-            <Transcript
-              key={state.sessionId || state.cwd || "new"}
-              messages={messages}
-              scrollRef={scrollRef}
-              onScroll={props.onTranscriptScroll}
-              streamText={streamText}
-              streamThinking={streamThinking}
-              thinkingStartedAt={thinkingStartedAt}
-              streaming={streaming}
-              hasWorkspace={!!state.cwd}
-              onOpenFolder={props.onOpenFolder}
-              openFolderShortcut={`${shortcutPrefix}O`}
-              onResend={props.onResend}
-              lastError={error}
-              onDismissError={props.onDismissError}
-            />
-            <Composer
-              draftKey={state.sessionId || state.cwd || "new"}
-              streaming={streaming}
-              queue={props.messageQueue}
-              onSend={props.onSend}
-              onRemoveQueued={props.onRemoveQueued}
-              onClearQueue={props.onClearQueue}
-              onCommand={props.onCommand}
-              onAbort={props.onAbort}
-              disabled={!state.cwd}
-            />
-          </>
-        )}
-      </main>
+              <motion.div
+                data-wails-no-drag
+                initial={reduce ? false : { opacity: 0, scale: 0.98, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={reduce ? undefined : { opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.14, ease: easeOut }}
+                className="titlebar-no-drag fixed z-50 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#141416] py-1 shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
+                style={{ left: ctxMenu.x, top: ctxMenu.y }}
+              >
+                <p className="px-3 pt-1 pb-1 font-mono text-[10px] text-zinc-500">
+                  {basename(ctxMenu.path) || "session"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => startRename(ctxMenu.path)}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-200 hover:bg-white/[0.06]"
+                >
+                  <Pencil size={12} />
+                  Rename…
+                </button>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
 
-
-      {ctxMenu && (
-        <>
-          <ClickAway
-            onClose={() => setCtxMenu(null)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setCtxMenu(null);
+        {settingsOpen && (
+          <SettingsDialog
+            keys={keys}
+            onSave={props.onSaveKey}
+            onProvidersChanged={props.onProvidersChanged}
+            onClose={() => {
+              setSettingsTab("providers");
+              props.onToggleSettings();
             }}
+            codexLogin={props.codexLogin}
+            initialTab={settingsTab}
           />
-          <div
-            data-wails-no-drag
-            className="titlebar-no-drag fixed z-50 w-44 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-xl"
-            style={{ left: ctxMenu.x, top: ctxMenu.y }}
-          >
-            <p className="px-3 pt-1 pb-1 font-mono text-[10px] text-[var(--color-muted)]">
-              {basename(ctxMenu.path) || "session"}
-            </p>
-            <button
-              type="button"
-              onClick={() => startRename(ctxMenu.path)}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--color-panel-2)]"
-            >
-              <Pencil size={12} />
-              Rename…
-            </button>
-          </div>
-        </>
-      )}
-
-      {settingsOpen && (
-        <SettingsDialog
-          keys={keys}
-          onSave={props.onSaveKey}
-          onProvidersChanged={props.onProvidersChanged}
-          onClose={() => {
-            setSettingsTab("providers");
-            props.onToggleSettings();
-          }}
-          codexLogin={props.codexLogin}
-          initialTab={settingsTab}
-        />
-      )}
-    </div>
+        )}
+      </motion.div>
+    </TooltipProvider>
   );
 }
-
 
 function formatTime(iso: string) {
   if (!iso) return "";
