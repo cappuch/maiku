@@ -176,6 +176,20 @@ func TestSetSubagentEnabledPersistsAndPreservesUnknownSettings(t *testing.T) {
 	}
 }
 
+func TestConductorDefaultsOffAndEnablesSubagents(t *testing.T) {
+	agentDir := t.TempDir()
+	if LoadSettings(t.TempDir(), agentDir).Settings.ConductorEnabled() {
+		t.Error("conductor should default to off")
+	}
+	if err := SetConductorEnabled(agentDir, true); err != nil {
+		t.Fatal(err)
+	}
+	settings := LoadSettings(t.TempDir(), agentDir).Settings
+	if !settings.ConductorEnabled() || !settings.SubagentEnabled() {
+		t.Fatalf("conductor=%v subagent=%v", settings.ConductorEnabled(), settings.SubagentEnabled())
+	}
+}
+
 func TestLoadSettingsReportsMalformedFile(t *testing.T) {
 	cwd := t.TempDir()
 	agentDir := t.TempDir()

@@ -73,6 +73,9 @@ type Settings struct {
 	Skills              []string               `json:"skills,omitempty"`
 	EnableSkillCommands *bool                  `json:"enableSkillCommands,omitempty"`
 	Subagent            *bool                  `json:"subagent,omitempty"`
+	// Conductor is an experimental mode: the user talks to one agent, and
+	// that agent directs monitor subagents that watch the work.
+	Conductor *bool `json:"conductor,omitempty"`
 	EnabledModels       []string               `json:"enabledModels,omitempty"`
 	QuietStartup        *bool                  `json:"quietStartup,omitempty"`
 	AutoUpdate          *bool                  `json:"autoUpdate,omitempty"`
@@ -229,6 +232,12 @@ func (s Settings) SubagentEnabled() bool {
 	return true
 }
 
+// ConductorEnabled reports whether the experimental one-agent mode is on.
+// It defaults to off.
+func (s Settings) ConductorEnabled() bool {
+	return s.Conductor != nil && *s.Conductor
+}
+
 // CompactionEnabled reports whether automatic compaction is on (default true).
 func (s Settings) CompactionEnabled() bool {
 	if s.Compaction != nil && s.Compaction.Enabled != nil {
@@ -378,6 +387,16 @@ func SetDefaultModel(agentDir, provider, model string) error {
 // SetSubagentEnabled persists whether root sessions expose the subagent tool.
 func SetSubagentEnabled(agentDir string, enabled bool) error {
 	return PatchGlobalSettings(agentDir, map[string]any{"subagent": enabled})
+}
+
+// SetConductorEnabled persists the experimental one-agent mode. Turning it
+// on also enables subagents, since the conductor directs them.
+func SetConductorEnabled(agentDir string, enabled bool) error {
+	patch := map[string]any{"conductor": enabled}
+	if enabled {
+		patch["subagent"] = true
+	}
+	return PatchGlobalSettings(agentDir, patch)
 }
 
 // SetModelThinkingLevel records the reasoning level for a single model id in

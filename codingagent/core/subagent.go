@@ -32,6 +32,8 @@ var subagentSchema = []byte(`{
 	"additionalProperties": false
 }`)
 
+const conductorMonitorPrompt = `You are a monitor for the single Maiku agent the user talks to. Watch the slice of work you were given. Read files, diffs, and command output and report what is actually happening. Do not edit files unless the task says a specific fix is required. Never address the user; your report returns only to the root agent.`
+
 const subagentReportInstructions = `You are a child Maiku agent working for a root Maiku orchestrator. Complete the delegated task independently using the tools available to you. You cannot create other subagents. Do not ask the user or root agent questions; make reasonable decisions, perform the work, and clearly identify anything that remains unresolved.
 
 Your final response is returned directly to the root agent. It MUST be a concise Markdown report with all of these sections:
@@ -175,6 +177,18 @@ func (r *SubagentRunner) SetModel(model ai.Model) {
 func (r *SubagentRunner) SetThinkingLevel(level agent.ThinkingLevel) {
 	r.mu.Lock()
 	r.thinking = level
+	r.mu.Unlock()
+}
+
+// SetConductor switches subsequently spawned children into monitors.
+// Existing children keep the prompt they started with.
+func (r *SubagentRunner) SetConductor(enabled bool) {
+	r.mu.Lock()
+	if enabled {
+		r.options.ChildSystemPrompt = conductorMonitorPrompt
+	} else {
+		r.options.ChildSystemPrompt = ""
+	}
 	r.mu.Unlock()
 }
 

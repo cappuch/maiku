@@ -575,16 +575,19 @@ func (a *App) createLiveSessionLocked(mgr *core.SessionManager) (*liveSession, e
 // prompt. Caller must hold a.mu when reading a.mcp is not required (Manager is
 // concurrency-safe), but this keeps session rebuilds consistent with App state.
 func (a *App) rootAgentConfigLocked(cwd, agentDir string, subagents *core.SubagentRunner, subagentEnabled bool) ([]agent.AgentTool, string) {
+	settings := core.LoadSettings(cwd, agentDir).Settings
+	conductor := settings.ConductorEnabled()
+	if conductor {
+		subagentEnabled = true
+	}
 	if subagents != nil {
 		subagents.SetEnabled(subagentEnabled)
+		subagents.SetConductor(conductor)
+		subagents.SetShellSettings(settings.ShellPath, settings.ShellCommandPrefix)
 	}
 	var exclude []string
 	if !subagentEnabled {
 		exclude = []string{core.SubagentToolName}
-	}
-	settings := core.LoadSettings(cwd, agentDir).Settings
-	if subagents != nil {
-		subagents.SetShellSettings(settings.ShellPath, settings.ShellCommandPrefix)
 	}
 	tools := core.SelectRootToolsWithOptions(
 		cwd,
@@ -600,6 +603,9 @@ func (a *App) rootAgentConfigLocked(cwd, agentDir string, subagents *core.Subage
 	snippets := map[string]string{}
 	for k, v := range core.DefaultToolSnippets {
 		snippets[k] = v
+	}
+	if conductor {
+		snippets["subagent"] = core.ConductorSubagentSnippet
 	}
 	if a.mcp != nil {
 		tools = append(tools, a.mcp.Tools()...)
@@ -621,6 +627,7 @@ func (a *App) rootAgentConfigLocked(cwd, agentDir string, subagents *core.Subage
 		Cwd:           cwd,
 		ContextFiles:  contextFiles,
 		Skills:        skills,
+		Conductor:     conductor,
 	})
 	return tools, prompt
 }
@@ -1258,16 +1265,25 @@ func (a *App) SetThinking(level string) error {
 	return nil
 }
 
-// SetSubagentEnabled persists the subagent toggle and applies it immediately
-// to every live root session. Disabling also cancels children already running.
-func (a *App) SetSubagentEnabled(enabled bool) error {
+// GetConductorEnabled reports the experimental one-agent mode.
+func (a *App) GetConductorEnabled() bool {
+	return core.LoadSettings(a.cwd, codingagent.GetAgentDir()).Settings.ConductorEnabled()
+}
+
+// SetConductorEnabled persists the experimental one-agent mode and applies
+// it to every live root session. Enabling it also turns subagents on.
+func (a *App) SetConductorEnabled(enabled bool) error {
 	agentDir := codingagent.GetAgentDir()
-	if err := core.SetSubagentEnabled(agentDir, enabled); err != nil {
+	if err := core.SetConductorEnabled(agentDir, enabled); err != nil {
 		return err
 	}
+	return a.applyRootConfig(agentDir)
+}
 
+func (a *App) applyRootConfig(agentDir string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	enabled := core.LoadSettings(a.cwd, agentDir).Settings.SubagentEnabled()
 	for _, live := range a.live {
 		if live == nil || live.session == nil {
 			continue
@@ -1281,6 +1297,16 @@ func (a *App) SetSubagentEnabled(enabled bool) error {
 		live.session.Agent().SetSystemPrompt(prompt)
 	}
 	return nil
+}
+
+// SetSubagentEnabled persists the subagent toggle and applies it immediately
+// to every live root session. Disabling also cancels children already running.
+func (a *App) SetSubagentEnabled(enabled bool) error {
+	agentDir := codingagent.GetAgentDir()
+	if err := core.SetSubagentEnabled(agentDir, enabled); err != nil {
+		return err
+	}
+	return a.applyRootConfig(agentDir)
 }
 
 // RecentDirs returns the five most recently opened directories, newest first.

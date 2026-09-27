@@ -66,6 +66,10 @@ export function SetMCPServerEnabled(arg1:string,arg2:boolean):Promise<void>;
 
 export function SetModel(arg1:string,arg2:string):Promise<void>;
 
+export function GetConductorEnabled():Promise<boolean>;
+
+export function SetConductorEnabled(arg1:boolean):Promise<void>;
+
 export function SetSubagentEnabled(arg1:boolean):Promise<void>;
 
 export function SetThinking(arg1:string):Promise<void>;

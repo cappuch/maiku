@@ -2,27 +2,22 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   FolderOpen,
   Pencil,
   Plus,
-  Server,
   Settings,
-  Square,
 } from "lucide-react";
 import type {
   APIKeyStatus,
   AppState,
   ImageAttachment,
-  MCPStatus,
   ModelInfo,
   QueuedMessage,
   SessionSummary,
   UIMessage,
   UsageTotals,
 } from "../types";
-import { cn, formatCacheRate, formatCost, formatTokens, greetingFor } from "../lib/utils";
+import { cn } from "../lib/utils";
 import { ModelSelector } from "./ModelSelector";
 import { ClickAway } from "./ClickAway";
 import { useClickAway } from "./useClickAway";
@@ -74,55 +69,46 @@ type Props = {
 export function AppShell(props: Props) {
   const {
     state,
-    usage,
     messages,
     sessions,
     models,
     keys,
     streaming,
-    streamingSessionIds,
     streamText,
     streamThinking,
     thinkingStartedAt,
-    tokensPerSec,
-    sidebarOpen,
     settingsOpen,
     error,
     scrollRef,
   } = props;
 
-  const streamingIdSet = useMemo(
-    () => new Set(streamingSessionIds),
-    [streamingSessionIds],
-  );
-
-  // Personalized empty-state greeting — computed once per user, so the random
-  // variant doesn't flicker across re-renders.
-  const greeting = useMemo(() => greetingFor(state.userName), [state.userName]);
   const isMac = useMemo(() => /mac|iphone|ipad/i.test(navigator.platform), []);
   const shortcutPrefix = isMac ? "⌘" : "Ctrl+";
 
   const [dirMenuOpen, setDirMenuOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [settingsTab, setSettingsTab] = useState<"providers" | "miru" | "mcp">("providers");
   const dirMenuRef = useRef<HTMLDivElement>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
 
-  // Clicking anywhere outside the folder menu closes it.
   useClickAway(dirMenuOpen, dirMenuRef, () => setDirMenuOpen(false));
+  useClickAway(historyOpen, historyRef, () => setHistoryOpen(false));
 
   // Close popovers on Escape.
   useEffect(() => {
-    if (!dirMenuOpen && !ctxMenu && !editingPath) return;
+    if (!dirMenuOpen && !historyOpen && !ctxMenu && !editingPath) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setDirMenuOpen(false);
+      setHistoryOpen(false);
       setCtxMenu(null);
       setEditingPath(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dirMenuOpen, ctxMenu, editingPath]);
+  }, [dirMenuOpen, historyOpen, ctxMenu, editingPath]);
 
   // Desktop shortcuts keep the most common workspace actions one keystroke away.
   useEffect(() => {
@@ -144,7 +130,7 @@ export function AppShell(props: Props) {
         props.onOpenFolder();
       } else if (key === "b") {
         event.preventDefault();
-        props.onToggleSidebar();
+        setHistoryOpen((open) => !open);
       } else if (key === ",") {
         event.preventDefault();
         toggleSettings();
@@ -287,6 +273,90 @@ export function AppShell(props: Props) {
                 </div>
             )}
           </div>
+          <div className="relative" ref={historyRef}>
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((open) => !open)}
+              className={cn(
+                "rounded-md px-2 py-1 text-xs text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]",
+                historyOpen && "bg-[var(--color-panel-2)] text-[var(--color-text)]",
+              )}
+              aria-expanded={historyOpen}
+            >
+              History
+            </button>
+            {historyOpen && (
+              <div className="titlebar-no-drag absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryOpen(false);
+                    props.onNewSession();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[var(--color-panel-2)]"
+                >
+                  <Plus size={14} />
+                  New
+                  <kbd className="ml-auto text-[10px] text-[var(--color-muted)]">{shortcutPrefix}N</kbd>
+                </button>
+                <div className="mx-2 border-t border-[var(--color-line)]" />
+                <div className="max-h-80 overflow-y-auto py-1">
+                  {folderSessions.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-[var(--color-muted)]">No sessions yet</p>
+                  )}
+                  {folderSessions.map((s) => {
+                    const active = s.id === state.sessionId;
+                    const editing = editingPath === s.path;
+                    return (
+                      <div key={s.path} className={cn("group relative", active && "bg-[var(--color-panel-2)]")}>
+                        {editing ? (
+                          <input
+                            ref={(input) => input?.focus()}
+                            defaultValue={s.name || s.preview || s.id.slice(0, 8)}
+                            aria-label="Session name"
+                            className="w-full border border-[var(--color-accent-dim)] bg-[var(--color-panel-2)] px-3 py-1.5 text-xs outline-none"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                              else if (e.key === "Escape") {
+                                e.currentTarget.dataset.cancel = "1";
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            onBlur={(e) => {
+                              if (e.currentTarget.dataset.cancel) {
+                                setEditingPath(null);
+                                return;
+                              }
+                              commitRename(s.path, e.currentTarget.value);
+                            }}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHistoryOpen(false);
+                              props.onOpenSession(s.path);
+                            }}
+                            onContextMenu={(e) => openCtxMenu(e, s.path)}
+                            className="flex w-full items-center px-3 py-2 pr-8 text-left hover:bg-[var(--color-panel-2)]"
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs">
+                                {s.name || s.preview || s.id.slice(0, 8)}
+                              </span>
+                              <span className="block truncate text-[10px] text-[var(--color-muted)]">
+                                {formatTime(s.modTime || s.timestamp)}
+                              </span>
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <ModelSelector
@@ -310,184 +380,75 @@ export function AppShell(props: Props) {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        {/* Sidebar — toggle pinned to the outer (left) edge; actions only when open. */}
-        <aside
-          className={cn(
-            "app-sidebar flex shrink-0 flex-col overflow-hidden border-r border-[var(--color-line)] transition-[width] duration-200",
-            sidebarOpen ? "w-64" : "w-12",
-          )}
-        >
-          {/* Toggle row is always left-anchored so the collapse button stays in place. */}
-          <div className="flex shrink-0 items-center gap-1 border-b border-[var(--color-line)] px-2 py-2.5">
-            <IconBtn
-              title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-              onClick={props.onToggleSidebar}
-            >
-              {sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-            </IconBtn>
-            {sidebarOpen && (
-              <>
-                <IconBtn title={`New session (${shortcutPrefix}N)`} onClick={props.onNewSession}>
-                  <Plus size={16} />
-                </IconBtn>
-                <IconBtn title={`Open folder (${shortcutPrefix}O)`} onClick={props.onOpenFolder}>
-                  <FolderOpen size={16} />
-                </IconBtn>
-              </>
-            )}
-          </div>
-          {!sidebarOpen && (
-            <div className="flex flex-col items-center gap-1 py-2">
-              <IconBtn title={`New session (${shortcutPrefix}N)`} onClick={props.onNewSession}>
-                <Plus size={16} />
-              </IconBtn>
-              <IconBtn title={`Open folder (${shortcutPrefix}O)`} onClick={props.onOpenFolder}>
-                <FolderOpen size={16} />
-              </IconBtn>
-            </div>
-          )}
-          {sidebarOpen && (
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              <p className="mb-2 px-1 text-[10px] font-semibold tracking-[0.12em] text-[var(--color-muted)]">
-                Sessions
-              </p>
-              {folderSessions.length === 0 && (
-                <p className="px-1 text-xs text-[var(--color-muted)]">No sessions yet</p>
-              )}
-              {folderSessions.map((s) => {
-                const active = s.id === state.sessionId;
-                const isStreaming = streamingIdSet.has(s.id);
-                const editing = editingPath === s.path;
-                return (
-                  <div
-                    key={s.path}
-                    className={cn(
-                      "group relative mb-1 w-full rounded-lg transition-colors",
-                      active && "bg-[var(--color-panel-2)] shadow-[inset_0_1px_rgba(255,255,255,.06)] ring-1 ring-[var(--color-line)]",
-                      isStreaming && "session-streaming",
-                    )}
-                  >
-                    {editing ? (
-                      <input
-                        ref={(input) => input?.focus()}
-                        defaultValue={s.name || s.preview || s.id.slice(0, 8)}
-                        aria-label="Session name"
-                        className="w-full rounded-md border border-[var(--color-accent-dim)] bg-[var(--color-panel-2)] px-2 py-1.5 text-xs text-[var(--color-text)] outline-none"
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.currentTarget.blur();
-                          } else if (e.key === "Escape") {
-                            e.currentTarget.dataset.cancel = "1";
-                            e.currentTarget.blur();
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (e.currentTarget.dataset.cancel) {
-                            setEditingPath(null);
-                            return;
-                          }
-                          commitRename(s.path, e.currentTarget.value);
-                        }}
-                      />
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => props.onOpenSession(s.path)}
-                          onContextMenu={(e) => openCtxMenu(e, s.path)}
-                          className="flex w-full items-center rounded-lg py-2 pr-9 pl-2 text-left transition-colors hover:bg-[var(--color-panel-2)]"
-                          title={s.path}
-                        >
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-medium">
-                              {s.name || s.preview || s.id.slice(0, 8)}
-                            </span>
-                            <span className="mt-0.5 block truncate font-mono text-[10px] text-[var(--color-muted)]">
-                              {formatTime(s.modTime || s.timestamp)}
-                            </span>
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => startRename(s.path)}
-                          className="session-rename-control absolute top-1/2 right-1.5 -translate-y-1/2 rounded-md p-1.5 text-[var(--color-muted)] opacity-0 hover:bg-white/5 hover:text-[var(--color-text)] focus:opacity-100 group-hover:opacity-100"
-                          aria-label={`Rename ${s.name || s.preview || "session"}`}
-                          title="Rename session"
-                        >
-                          <Pencil size={12} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </aside>
-
-        {/* Main */}
-        <main className="flex min-w-0 flex-1 flex-col">
-          {!state.hasApiKey && (
-            <button
-              type="button"
-              onClick={() => openSettings("providers")}
-              className="border-b border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] px-4 py-2 text-left text-sm text-[var(--color-accent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_17%,transparent)]"
-            >
-              No API key for <strong>{state.provider || "provider"}</strong>. <span className="underline underline-offset-2">Open Settings</span>
-            </button>
-          )}
-
-          <Transcript
-            key={state.sessionId || state.cwd || "new"}
-            messages={messages}
-            scrollRef={scrollRef}
-            onScroll={props.onTranscriptScroll}
-            streamText={streamText}
-            streamThinking={streamThinking}
-            thinkingStartedAt={thinkingStartedAt}
-            streaming={streaming}
-            greeting={greeting}
-            hasWorkspace={!!state.cwd}
-            onOpenFolder={props.onOpenFolder}
-            openFolderShortcut={`${shortcutPrefix}O`}
-            onResend={props.onResend}
-            lastError={error}
-            onDismissError={props.onDismissError}
-          />
-
-          <Composer
-            draftKey={state.sessionId || state.cwd || "new"}
-            streaming={streaming}
-            queue={props.messageQueue}
-            onSend={props.onSend}
-            onRemoveQueued={props.onRemoveQueued}
-            onClearQueue={props.onClearQueue}
-            onCommand={props.onCommand}
-            onAbort={props.onAbort}
-            disabled={!state.cwd}
-          />
-        </main>
-      </div>
-
-      {/* Status bar */}
-      <footer className="status-bar relative z-[35] flex h-8 shrink-0 items-center gap-4 border-t border-[var(--color-line)] px-3 font-mono text-[11px] text-[var(--color-muted)]">
-        <Stat label="in" value={formatTokens(usage.input)} />
-        <Stat label="out" value={formatTokens(usage.output)} />
-        <Stat label="cache" value={formatCacheRate(usage.cacheRate)} accent />
-        <Stat label="total" value={formatTokens(usage.totalTokens)} />
-        <Stat label="cost" value={formatCost(usage.cost)} />
-        <Stat label="total cost" value={formatCost(usage.totalCost ?? usage.cost)} accent />
-        <Stat label="tok/s" value={formatRate(tokensPerSec)} />
-        <span className="ml-auto truncate">{state.cwd || "open a folder to begin"}</span>
-        <MCPStatusIndicator status={state.mcp} />
-        {streaming && (
-          <span className="flex items-center gap-1 text-[var(--color-accent)]">
-            <Square size={10} className="animate-pulse" fill="currentColor" />
-            working
-          </span>
+      <main className="flex min-h-0 flex-1 flex-col">
+        {!state.hasApiKey && (
+          <button
+            type="button"
+            onClick={() => openSettings("providers")}
+            className="px-4 py-2 text-left text-sm text-[var(--color-accent)]"
+          >
+            Add an API key in Settings to start.
+          </button>
         )}
-      </footer>
+
+        {messages.length === 0 && !streaming ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center px-6 pb-24">
+            <div className="w-full max-w-xl">
+              {!state.cwd && (
+                <button
+                  type="button"
+                  onClick={props.onOpenFolder}
+                  className="mb-3 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                >
+                  Open a folder
+                </button>
+              )}
+              <Composer
+                draftKey={state.sessionId || state.cwd || "new"}
+                streaming={streaming}
+                queue={props.messageQueue}
+                onSend={props.onSend}
+                onRemoveQueued={props.onRemoveQueued}
+                onClearQueue={props.onClearQueue}
+                onCommand={props.onCommand}
+                onAbort={props.onAbort}
+                disabled={!state.cwd}
+              />
+            </div>
+          </div>
+        ) : (
+          <>
+            <Transcript
+              key={state.sessionId || state.cwd || "new"}
+              messages={messages}
+              scrollRef={scrollRef}
+              onScroll={props.onTranscriptScroll}
+              streamText={streamText}
+              streamThinking={streamThinking}
+              thinkingStartedAt={thinkingStartedAt}
+              streaming={streaming}
+              hasWorkspace={!!state.cwd}
+              onOpenFolder={props.onOpenFolder}
+              openFolderShortcut={`${shortcutPrefix}O`}
+              onResend={props.onResend}
+              lastError={error}
+              onDismissError={props.onDismissError}
+            />
+            <Composer
+              draftKey={state.sessionId || state.cwd || "new"}
+              streaming={streaming}
+              queue={props.messageQueue}
+              onSend={props.onSend}
+              onRemoveQueued={props.onRemoveQueued}
+              onClearQueue={props.onClearQueue}
+              onCommand={props.onCommand}
+              onAbort={props.onAbort}
+              disabled={!state.cwd}
+            />
+          </>
+        )}
+      </main>
+
 
       {ctxMenu && (
         <>
@@ -535,143 +496,6 @@ export function AppShell(props: Props) {
   );
 }
 
-function MCPStatusIndicator({ status }: { status?: MCPStatus }) {
-  const configured = status?.configured ?? 0;
-  const connected = status?.connected ?? 0;
-  const failed = status?.failed ?? 0;
-  const servers = status?.servers ?? [];
-  if (configured === 0) return null;
-
-  const tone =
-    connected > 0
-      ? "text-[var(--color-accent)]"
-      : failed > 0
-        ? "text-[var(--color-danger)]"
-        : "text-[var(--color-muted)]";
-
-  const label =
-    connected > 0
-      ? `${connected} MCP server${connected === 1 ? "" : "s"} connected`
-      : failed > 0
-        ? `${failed} MCP server${failed === 1 ? "" : "s"} failed`
-        : `${configured} MCP server${configured === 1 ? "" : "s"} configured`;
-
-  return (
-    <div className="group relative flex items-center">
-      <button
-        type="button"
-        className={`flex items-center gap-1 ${tone}`}
-        aria-label={label}
-      >
-        <Server size={11} />
-        <span>{connected}/{configured}</span>
-      </button>
-      <div
-        role="tooltip"
-        className="absolute bottom-full right-0 z-50 hidden w-64 rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] p-2 shadow-xl group-hover:block group-focus-within:block"
-      >
-        <p className="mb-1.5 px-1 text-[10px] font-medium tracking-wide text-[var(--color-muted)]">
-          MCP servers
-        </p>
-        <ul className="max-h-56 overflow-y-auto">
-          {servers.map((server) => {
-            const detail = server.url
-              ? server.url
-              : `${server.command || ""} ${(server.args || []).join(" ")}`.trim();
-            const stateLabel = server.disabled
-              ? "disabled"
-              : server.connected
-                ? "connected"
-                : server.error
-                  ? "error"
-                  : "idle";
-            const dot =
-              server.disabled
-                ? "bg-[var(--color-muted)]"
-                : server.connected
-                  ? "bg-emerald-400"
-                  : "bg-red-400";
-            return (
-              <li
-                key={server.name}
-                className="rounded-md px-1.5 py-1.5 hover:bg-[var(--color-panel-2)]"
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-                  <span className="truncate text-[11px] text-[var(--color-text)]">{server.name}</span>
-                  <span className="ml-auto shrink-0 text-[10px] text-[var(--color-muted)]">
-                    {server.kind || (server.url ? "http" : "stdio")} · {stateLabel}
-                  </span>
-                </div>
-                {detail ? (
-                  <p className="mt-0.5 truncate pl-3 font-mono text-[10px] text-[var(--color-muted)]">
-                    {detail}
-                  </p>
-                ) : null}
-                {server.connected && server.toolCount > 0 ? (
-                  <p className="mt-0.5 pl-3 text-[10px] text-[var(--color-muted)]">
-                    {server.toolCount} tool{server.toolCount === 1 ? "" : "s"}
-                  </p>
-                ) : null}
-                {server.error && !server.disabled ? (
-                  <p className="mt-0.5 truncate pl-3 text-[10px] text-[var(--color-danger)]">
-                    {server.error}
-                  </p>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-function IconBtn({
-  children,
-  onClick,
-  title,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  title: string;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className="rounded-md p-1.5 text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"
-    >
-      {children}
-    </button>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  return (
-    <span>
-      <span className="mr-1 opacity-60">{label}</span>
-      <span className={accent ? "text-[var(--color-accent)]" : "text-[var(--color-text)]"}>
-        {value}
-      </span>
-    </span>
-  );
-}
-
-function formatRate(r: number) {
-  if (!Number.isFinite(r) || r <= 0) return "0";
-  return r >= 100 ? Math.round(r).toString() : r.toFixed(1);
-}
 
 function formatTime(iso: string) {
   if (!iso) return "";

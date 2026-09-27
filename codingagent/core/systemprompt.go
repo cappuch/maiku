@@ -28,6 +28,12 @@ var DefaultToolSnippets = map[string]string{
 	"subagent":   "Delegate a self-contained task to an independent child Maiku and receive a Markdown report",
 }
 
+// ConductorGuideline tells the root agent it is the only voice the user hears.
+const ConductorGuideline = "The user talks only to you. Subagents are monitors: ask them to watch work in progress and report what is happening. Fold their reports into your own reply. You are the only voice the user hears."
+
+// ConductorSubagentSnippet replaces the subagent tool description in conductor mode.
+const ConductorSubagentSnippet = "Ask a monitor to watch part of the work and report what is happening. Monitors do not talk to the user."
+
 // BuildSystemPromptOptions configures BuildSystemPrompt.
 type BuildSystemPromptOptions struct {
 	// CustomPrompt replaces the default prompt body when non-empty.
@@ -50,6 +56,8 @@ type BuildSystemPromptOptions struct {
 	// Skills are the discovered skills advertised to the model. They are
 	// only rendered when the read tool is available.
 	Skills []Skill
+	// Conductor switches subagents into monitors directed by this one agent.
+	Conductor bool
 }
 
 // BuildSystemPrompt renders the system prompt for a run.
@@ -118,7 +126,11 @@ func BuildSystemPrompt(options BuildSystemPromptOptions) string {
 		addGuideline("Use the computer tool when the user wants something done in other apps or on the desktop. Take a screenshot first, click the center of controls, and check the screenshot after each action")
 	}
 	if has[SubagentToolName] {
-		addGuideline("Use subagents for self-contained delegated work. Issue multiple subagent calls in one response when tasks are independent, then review their reports and remain responsible for the overall result")
+		if options.Conductor {
+			addGuideline(ConductorGuideline)
+		} else {
+			addGuideline("Use subagents for self-contained delegated work. Issue multiple subagent calls in one response when tasks are independent, then review their reports and remain responsible for the overall result")
+		}
 	}
 	for _, guideline := range options.PromptGuidelines {
 		addGuideline(guideline)

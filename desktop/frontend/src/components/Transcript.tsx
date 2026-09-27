@@ -18,7 +18,6 @@ export function Transcript({
   streamThinking,
   thinkingStartedAt,
   streaming,
-  greeting,
   hasWorkspace = true,
   onOpenFolder,
   openFolderShortcut = "⌘O",
@@ -33,7 +32,6 @@ export function Transcript({
   streamThinking?: string;
   thinkingStartedAt?: number | null;
   streaming?: boolean;
-  greeting?: string;
   hasWorkspace?: boolean;
   onOpenFolder?: () => void;
   openFolderShortcut?: string;
@@ -162,23 +160,15 @@ export function Transcript({
         onScroll={handleScroll}
         className="transcript h-full overflow-y-auto px-6 py-7"
       >
-        {isEmpty && (
+        {isEmpty && !hasWorkspace && onOpenFolder ? (
           <div className="empty-state mx-auto mt-[16vh] max-w-xl text-center">
-            <p className="empty-greeting">{greeting || "Hey there"}</p>
-            <p className="empty-subtitle">
-              {hasWorkspace
-                ? "Ask a question, plan a change, or point me at a file."
-                : "Open a project and we’ll get to work."}
-            </p>
-            {!hasWorkspace && onOpenFolder ? (
-              <button type="button" className="empty-primary" onClick={onOpenFolder}>
-                <FolderOpen size={15} />
-                Open folder
-                <kbd>{openFolderShortcut}</kbd>
-              </button>
-            ) : null}
+            <button type="button" className="empty-primary" onClick={onOpenFolder}>
+              <FolderOpen size={15} />
+              Open folder
+              <kbd>{openFolderShortcut}</kbd>
+            </button>
           </div>
-        )}
+        ) : null}
         <div className="mx-auto flex max-w-[760px] flex-col gap-5">
           {visibleStart > 0 ? (
             <button

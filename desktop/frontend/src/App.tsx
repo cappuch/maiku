@@ -135,7 +135,7 @@ export default function App() {
   const RATE_BUFFER = 16;
   const [error, setError] = useState<string | null>(null);
   const [retryingStartup, setRetryingStartup] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Stream updates should follow the response only while the user is already

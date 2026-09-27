@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Code2, KeyRound, Plus, RefreshCw, Search, Server, Trash2, X } from "lucide-react";
+import { Code2, FlaskConical, KeyRound, Plus, RefreshCw, Search, Server, Trash2, X } from "lucide-react";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import {
   GetAutoUpdateEnabled,
+  GetConductorEnabled,
   SetAutoUpdateEnabled,
+  SetConductorEnabled,
   ListCustomProviders,
   ListMCPServers,
   ReloadMCP,
@@ -21,7 +23,7 @@ export type CodexLoginHandlers = {
   cancel: () => Promise<void> | void;
 };
 
-type SettingsTab = "providers" | "miru" | "mcp" | "updates";
+type SettingsTab = "providers" | "miru" | "mcp" | "updates" | "experimental";
 
 export function SettingsDialog({
   keys,
@@ -157,7 +159,10 @@ export function SettingsDialog({
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <nav aria-label="Settings sections" className="w-56 shrink-0 border-r border-[var(--color-line)] px-3 py-4">
+          <nav aria-label="Settings sections" className="w-56 shrink-0 overflow-y-auto border-r border-[var(--color-line)] px-3 py-4">
+            <button type="button" onClick={() => setTab("experimental")} aria-current={tab === "experimental" ? "page" : undefined} className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "experimental" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
+              <FlaskConical size={14} /> Experimental
+            </button>
             <button type="button" onClick={() => setTab("providers")} className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent-dim)] ${tab === "providers" ? "bg-[var(--color-panel-2)] text-[var(--color-text)]" : "text-[var(--color-muted)] hover:bg-[var(--color-panel-2)] hover:text-[var(--color-text)]"}`}>
               <KeyRound size={14} /> Providers
             </button>
@@ -387,11 +392,77 @@ export function SettingsDialog({
           </div>
         ) : tab === "updates" ? (
           <UpdatesSettingsPane />
+        ) : tab === "experimental" ? (
+          <ExperimentalSettingsPane />
         ) : (
           <MCPSettingsPane />
         )}
           </section>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ExperimentalSettingsPane() {
+  const [enabled, setEnabled] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    GetConductorEnabled().then((value) => {
+      if (active) {
+        setEnabled(value);
+        setLoaded(true);
+      }
+    }).catch((err: unknown) => {
+      if (active) setError(String(err));
+    });
+    return () => { active = false; };
+  }, []);
+
+  const save = async (value: boolean) => {
+    const previous = enabled;
+    setEnabled(value);
+    setSaving(true);
+    setError(null);
+    try {
+      await SetConductorEnabled(value);
+    } catch (err) {
+      setEnabled(previous);
+      setError(String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="mx-auto max-w-2xl">
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold">Experimental</h3>
+          <p className="mt-1 text-xs leading-5 text-[var(--color-muted)]">
+            One prompt. One agent talks to you and directs the others.
+          </p>
+        </div>
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={enabled}
+            disabled={!loaded || saving}
+            onChange={(event) => void save(event.target.checked)}
+          />
+          <span>
+            <span className="block text-sm">Conductor</span>
+            <span className="mt-1 block text-xs leading-5 text-[var(--color-muted)]">
+              You talk to a single agent. It sends monitors to watch the work and report back. They do not talk to you.
+            </span>
+          </span>
+        </label>
+        {error ? <p role="alert" className="mt-3 text-[11px] text-[var(--color-danger)]">{error}</p> : null}
       </div>
     </div>
   );
