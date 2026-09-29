@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cappuch/maiku/codingagent"
 	"github.com/cappuch/maiku/codingagent/core"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 const commandHelp = `Commands
@@ -112,7 +112,7 @@ func (m *model) command(text string) tea.Cmd {
 				var manager *core.SessionManager
 				manager, err = core.LoadSessionManager(path)
 				if err == nil {
-					err = m.useSession(manager)
+					err = m.openExisting(manager)
 				}
 			}
 			if err != nil {

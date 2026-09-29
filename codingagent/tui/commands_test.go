@@ -9,10 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/codingagent"
 	"github.com/cappuch/maiku/codingagent/core"
 	mcp "github.com/cappuch/maiku/codingagent/core/mcp"
+	tea "github.com/charmbracelet/bubbletea"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -140,6 +141,128 @@ func TestSetupValidation(t *testing.T) {
 	f := newForm("MCP", setupField{key: "args"})
 	f.input.SetValue(`["C:\\Program Files\\server", "path with spaces"]`)
 	if err := f.accept(t.TempDir(), t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUseSessionDoesNotCreateEmptyFile(t *testing.T) {
+	m := isolatedModel(t)
+	m.selected = ai.Model{ID: "test-model", Provider: "test-provider"}
+	if err := m.useSession(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(m.session.SessionManager().File()); !os.IsNotExist(err) {
+		t.Fatalf("empty session file exists: %v", err)
+	}
+}
+
+func TestAbandonedEmptySessionIsDeleted(t *testing.T) {
+	m := isolatedModel(t)
+	m.selected = ai.Model{ID: "test-model", Provider: "test-provider"}
+	if err := m.useSession(nil); err != nil {
+		t.Fatal(err)
+	}
+	previous := m.session.SessionManager()
+	if err := previous.EnsurePersisted(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.useSession(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(previous.File()); !os.IsNotExist(err) {
+		t.Fatalf("abandoned empty session still present: %v", err)
+	}
+	if _, err := os.Stat(m.session.SessionManager().File()); !os.IsNotExist(err) {
+		t.Fatalf("replacement session was written before a chat: %v", err)
+	}
+}
+
+func TestSessionPickerOmitsEmptySessions(t *testing.T) {
+	m := isolatedModel(t)
+	dir := codingagent.GetDefaultSessionDir(m.cwd)
+	empty := core.NewSessionManager(m.cwd, dir, true)
+	if err := empty.EnsurePersisted(); err != nil {
+		t.Fatal(err)
+	}
+	full := core.NewSessionManager(m.cwd, dir, true)
+	if err := full.AppendMessage(ai.Message{
+		Role:        "user",
+		UserContent: []ai.TextContent{{Type: "text", Text: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.openPicker(false)
+	if len(m.choices) != 1 || m.choices[0].path != full.File() {
+		t.Fatalf("choices = %+v", m.choices)
+	}
+	if _, err := os.Stat(empty.File()); !os.IsNotExist(err) {
+		t.Fatalf("empty session still listed on disk: %v", err)
+	}
+}
+
+func TestOpenExistingRecallsSessionModel(t *testing.T) {
+	m := isolatedModel(t)
+	writeAcmeModels(t)
+	m.selected = ai.Model{ID: "acme-small", Provider: "acme"}
+	dir := codingagent.GetDefaultSessionDir(m.cwd)
+	session := core.NewSessionManager(m.cwd, dir, true)
+	if err := session.SetModel("acme", "acme-large"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.AppendMessage(ai.Message{
+		Role:        "user",
+		UserContent: []ai.TextContent{{Type: "text", Text: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := core.LoadSessionManager(session.File())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.openExisting(loaded); err != nil {
+		t.Fatal(err)
+	}
+	if m.selected.Provider != "acme" || m.selected.ID != "acme-large" {
+		t.Fatalf("model = %s/%s", m.selected.Provider, m.selected.ID)
+	}
+}
+
+func TestLaunchFlagOverridesSessionModel(t *testing.T) {
+	m := isolatedModel(t)
+	writeAcmeModels(t)
+	m.opts.model = "acme-small"
+	m.selected = ai.Model{ID: "acme-small", Provider: "acme"}
+	dir := codingagent.GetDefaultSessionDir(m.cwd)
+	session := core.NewSessionManager(m.cwd, dir, true)
+	if err := session.SetModel("acme", "acme-large"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.AppendMessage(ai.Message{
+		Role:        "user",
+		UserContent: []ai.TextContent{{Type: "text", Text: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := core.LoadSessionManager(session.File())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.bindLaunchSession(loaded); err != nil {
+		t.Fatal(err)
+	}
+	if m.selected.ID != "acme-small" {
+		t.Fatalf("flag model lost: %s", m.selected.ID)
+	}
+	provider, modelID := loaded.RememberedModel()
+	if provider != "acme" || modelID != "acme-small" {
+		t.Fatalf("session now remembers %s/%s", provider, modelID)
+	}
+}
+
+func writeAcmeModels(t *testing.T) {
+	t.Helper()
+	body := []byte(`{"customProviders":[{"id":"acme","name":"Acme","baseUrl":"https://example.com/v1","models":["acme-large","acme-small"]}]}`)
+	if err := os.WriteFile(filepath.Join(os.Getenv("MAIKU_AGENT_DIR"), "settings.json"), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

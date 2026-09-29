@@ -63,6 +63,9 @@ func Run(args []string, input *os.File, output, errors io.Writer) int {
 		}
 		if m.session != nil {
 			m.session.Abort()
+			if mgr := m.session.SessionManager(); mgr != nil {
+				_ = mgr.DiscardIfEmpty()
+			}
 			m.session.Dispose()
 		}
 		m.mcp.Close()
@@ -81,6 +84,8 @@ type readyMsg struct {
 }
 
 func (m *model) initialize() tea.Msg {
+	// Blank sessions from earlier launches are not chats and should not linger.
+	core.PruneEmptySessions(codingagent.GetSessionsDir(), nil)
 	core.InstallAuthStorage(core.DefaultAuthStorage())
 	settings := core.LoadSettings(m.cwd, codingagent.GetAgentDir()).Settings
 	provider := m.opts.provider
@@ -135,23 +140,58 @@ func (m *model) initialize() tea.Msg {
 			return readyMsg{err: err}
 		}
 	}
-	return readyMsg{err: m.useSession(manager)}
+	return readyMsg{err: m.bindLaunchSession(manager)}
+}
+
+// bindLaunchSession opens the startup session. An explicit --model or
+// --provider wins; otherwise a resumed session comes back with the model
+// that was selected for it.
+func (m *model) bindLaunchSession(manager *core.SessionManager) error {
+	if manager != nil && m.opts.model == "" && m.opts.provider == "" {
+		return m.openExisting(manager)
+	}
+	return m.useSession(manager)
+}
+
+// openExisting switches to a saved session and restores the model selected
+// for that session. If that model can no longer be resolved, the session's
+// stored choice is left untouched.
+func (m *model) openExisting(manager *core.SessionManager) error {
+	saveModel := true
+	if provider, id := manager.RememberedModel(); id != "" {
+		resolved, err := core.ResolveModel(core.ResolveModelOptions{Provider: provider, Model: id})
+		if err != nil {
+			saveModel = false
+		} else {
+			m.selected = resolved
+		}
+	}
+	return m.activateSession(manager, saveModel)
 }
 
 func (m *model) useSession(manager *core.SessionManager) error {
+	return m.activateSession(manager, true)
+}
+
+func (m *model) activateSession(manager *core.SessionManager, saveModel bool) error {
 	if m.selected.ID == "" {
 		return fmt.Errorf("select a configured model before opening a session")
 	}
 	if manager == nil {
 		manager = core.NewSessionManager(m.cwd, codingagent.GetDefaultSessionDir(m.cwd), true)
 	}
-	if err := manager.EnsurePersisted(); err != nil {
-		return err
-	}
 	if filepath.Clean(manager.Header().Cwd) != filepath.Clean(m.cwd) {
 		return fmt.Errorf("session belongs to %s; launch maiku from that folder to resume it", manager.Header().Cwd)
 	}
+	if saveModel {
+		if err := manager.SetModel(m.selected.Provider, m.selected.ID); err != nil {
+			return err
+		}
+	}
 	if m.session != nil {
+		if prev := m.session.SessionManager(); prev != nil && prev != manager {
+			_ = prev.DiscardIfEmpty()
+		}
 		m.session.Dispose()
 	}
 	if m.subagents != nil {

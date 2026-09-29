@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,10 @@ type SessionHeader struct {
 	ID        string `json:"id"`
 	Timestamp string `json:"timestamp"`
 	Cwd       string `json:"cwd"`
+	// Provider and Model are the model last selected for this session.
+	// Empty on older transcripts; callers fall back to the latest assistant message.
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 // SessionEntry is a non-header line of a session JSONL file.
@@ -412,6 +417,89 @@ func (s *SessionManager) EnsurePersisted() (returnErr error) {
 	return nil
 }
 
+// SetModel records the model selected for this session. The file is created
+// only when a message is appended; an existing file gets its header rewritten
+// so a later resume restores this choice.
+func (s *SessionManager) SetModel(provider, modelID string) error {
+	if modelID == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.header.Provider == provider && s.header.Model == modelID {
+		return nil
+	}
+	s.header.Provider = provider
+	s.header.Model = modelID
+	if !s.persist || s.file == "" || !s.headerWritten {
+		return nil
+	}
+	return s.rewriteHeaderLocked()
+}
+
+// RememberedModel returns the model last selected for this session.
+// Transcripts written before the header carried a model fall back to the
+// latest assistant message that recorded one.
+func (s *SessionManager) RememberedModel() (provider, modelID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.header.Model != "" {
+		return s.header.Provider, s.header.Model
+	}
+	for i := len(s.messages) - 1; i >= 0; i-- {
+		msg := s.messages[i]
+		if msg.Role == "assistant" && msg.Model != "" {
+			return msg.Provider, msg.Model
+		}
+	}
+	return "", ""
+}
+
+// DiscardIfEmpty removes the session file when it contains no messages.
+// Selecting a model or opening the CLI does not keep a session on disk.
+func (s *SessionManager) DiscardIfEmpty() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.persist || s.file == "" || len(s.messages) > 0 {
+		return nil
+	}
+	err := os.Remove(s.file)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	s.headerWritten = false
+	return nil
+}
+
+func (s *SessionManager) rewriteHeaderLocked() error {
+	data, err := os.ReadFile(s.file)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			s.headerWritten = false
+			return nil
+		}
+		return err
+	}
+	headerLine, err := json.Marshal(s.header)
+	if err != nil {
+		return err
+	}
+	rest := []byte(nil)
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		rest = data[i+1:]
+	}
+	tmp := s.file + ".tmp"
+	if err := os.WriteFile(tmp, append(append(headerLine, '\n'), rest...), 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, s.file); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	s.headerWritten = true
+	return nil
+}
+
 // AppendMessage records a message in memory and, for persisted sessions,
 // appends it to the session file.
 func (s *SessionManager) AppendMessage(message ai.Message) (returnErr error) {
@@ -424,6 +512,17 @@ func (s *SessionManager) AppendMessage(message ai.Message) (returnErr error) {
 	defer s.mu.Unlock()
 
 	s.messages = append(s.messages, message)
+
+	if message.Role == "assistant" && message.Model != "" &&
+		(s.header.Provider != message.Provider || s.header.Model != message.Model) {
+		s.header.Provider = message.Provider
+		s.header.Model = message.Model
+		if s.headerWritten {
+			if err := s.rewriteHeaderLocked(); err != nil {
+				return err
+			}
+		}
+	}
 
 	entry := SessionEntry{
 		Type:      "message",
@@ -450,7 +549,13 @@ func (s *SessionManager) AppendMessage(message ai.Message) (returnErr error) {
 	}
 	defer func() { returnErr = errors.Join(returnErr, file.Close()) }()
 
-	if !s.headerWritten {
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	// A missing or emptied file (for example after an empty session was
+	// pruned) needs a fresh header, including the selected model.
+	if info.Size() == 0 {
 		headerLine, err := json.Marshal(s.header)
 		if err != nil {
 			return err

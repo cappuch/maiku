@@ -9,16 +9,16 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/cappuch/maiku/agent"
 	"github.com/cappuch/maiku/ai"
 	"github.com/cappuch/maiku/codingagent"
 	"github.com/cappuch/maiku/codingagent/core"
 	mcp "github.com/cappuch/maiku/codingagent/core/mcp"
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#f0b75a"))
@@ -362,6 +362,7 @@ func (m *model) openPicker(models bool) {
 		}
 	} else {
 		m.picker = "Sessions"
+		core.PruneEmptySessions(codingagent.GetSessionsDir(), nil)
 		entries, _ := os.ReadDir(codingagent.GetDefaultSessionDir(m.cwd))
 		for _, entry := range entries {
 			if entry.IsDir() || filepath.Ext(entry.Name()) != ".jsonl" {
@@ -369,7 +370,7 @@ func (m *model) openPicker(models bool) {
 			}
 			path := filepath.Join(codingagent.GetDefaultSessionDir(m.cwd), entry.Name())
 			manager, err := core.LoadSessionManager(path)
-			if err != nil || manager.Header().Cwd != m.cwd {
+			if err != nil || manager.Header().Cwd != m.cwd || len(manager.Messages()) == 0 {
 				continue
 			}
 			label := "New conversation"
@@ -409,7 +410,11 @@ func (m *model) updatePicker(msg tea.KeyMsg) tea.Cmd {
 			manager, err = core.LoadSessionManager(c.path)
 		}
 		if err == nil {
-			err = m.useSession(manager)
+			if m.picker == "Models" {
+				err = m.useSession(manager)
+			} else {
+				err = m.openExisting(manager)
+			}
 		}
 		if err != nil {
 			m.status = err.Error()
