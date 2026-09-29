@@ -1,15 +1,17 @@
-package tools
+package computer
 
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 
 	"github.com/cappuch/maiku/agent"
 	"github.com/cappuch/maiku/ai"
-	"github.com/cappuch/maiku/codingagent/core/computer"
 )
 
-var computerSchema = []byte(`{
+const ToolName = "computer"
+
+var toolSchema = []byte(`{
 	"type": "object",
 	"properties": {
 		"action": {"type": "string", "enum": ["screenshot", "click", "move", "drag", "type", "key", "scroll", "wait", "batch"], "description": "What to do on the desktop"},
@@ -44,25 +46,27 @@ var computerSchema = []byte(`{
 	"required": ["action"]
 }`)
 
-// CreateComputerTool drives the macOS desktop and returns a screenshot after each action.
-func CreateComputerTool() *agent.AgentTool {
+// Tool drives the macOS desktop and returns a screenshot after each action.
+// The desktop app registers it. The CLI does not import this package, so the
+// tool is left out of CLI builds.
+func Tool() *agent.AgentTool {
 	return &agent.AgentTool{
 		Tool: ai.Tool{
-			Name: string(ToolComputer),
+			Name: ToolName,
 			Description: "Control the user's macOS desktop. Coordinates are pixels in the screenshot this tool returns (top-left origin, 1:1 with the screen). " +
 				"Start with action=screenshot. Then click the center of UI elements, type only after focusing a field, and prefer reliable shortcuts (cmd+space opens Spotlight). " +
 				"Use batch for a short sequence you are sure about (click a field, type, press enter) and put delay_ms on steps that need the UI to catch up. " +
 				"Every call returns a new screenshot — read it before the next action.",
-			Parameters: computerSchema,
+			Parameters: toolSchema,
 		},
-		Label:         "computer",
+		Label:         ToolName,
 		ExecutionMode: agent.ToolExecutionSequential,
 		Execute: func(ctx context.Context, _ string, params map[string]any, _ agent.AgentToolUpdateCallback) (agent.AgentToolResult, error) {
-			if err := checkAborted(ctx); err != nil {
-				return agent.AgentToolResult{}, err
+			if ctx != nil && ctx.Err() != nil {
+				return agent.AgentToolResult{}, errors.New("operation aborted")
 			}
-			action := argStringOr(params, "action", "")
-			result, err := computer.Act(ctx, action, params)
+			action, _ := params["action"].(string)
+			result, err := Act(ctx, action, params)
 			if err != nil {
 				return agent.AgentToolResult{}, err
 			}

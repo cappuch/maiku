@@ -9,7 +9,7 @@ import (
 
 // DefaultToolNames are the built-in tools enabled when the caller does not
 // pass an allowlist.
-var DefaultToolNames = []string{"read", "bash", "edit", "write", "miru", "web_search", "curl", "computer"}
+var DefaultToolNames = []string{"read", "bash", "edit", "write", "miru", "web_search", "curl"}
 
 // DefaultToolSnippets are the one-line tool descriptions rendered into the
 // system prompt's "Available tools" section.

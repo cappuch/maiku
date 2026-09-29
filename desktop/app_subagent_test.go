@@ -30,6 +30,9 @@ func TestRootAgentConfigHonorsSubagentSetting(t *testing.T) {
 	if !includesTool(tools, core.SubagentToolName) {
 		t.Fatal("enabled root config is missing the subagent tool")
 	}
+	if !includesTool(tools, "computer") || !strings.Contains(prompt, "- computer:") {
+		t.Fatal("desktop root config is missing computer use")
+	}
 	if !strings.Contains(prompt, "- subagent:") || !strings.Contains(prompt, "Use subagents") {
 		t.Fatal("enabled root prompt is missing subagent guidance")
 	}

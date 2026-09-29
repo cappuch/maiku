@@ -29,6 +29,7 @@ import (
 	"github.com/cappuch/maiku/codingagent/cli"
 	"github.com/cappuch/maiku/codingagent/core"
 	"github.com/cappuch/maiku/codingagent/core/compaction"
+	"github.com/cappuch/maiku/codingagent/core/computer"
 	mcppkg "github.com/cappuch/maiku/codingagent/core/mcp"
 )
 
@@ -600,6 +601,9 @@ func (a *App) rootAgentConfigLocked(cwd, agentDir string, subagents *core.Subage
 			ShellCommandPrefix: settings.ShellCommandPrefix,
 		},
 	)
+	if computerTool := computer.Tool(); computerTool != nil {
+		tools = append(tools, *computerTool)
+	}
 	snippets := map[string]string{}
 	for k, v := range core.DefaultToolSnippets {
 		snippets[k] = v
