@@ -191,6 +191,7 @@ func (m *model) activateSession(manager *core.SessionManager, saveModel bool) er
 	if m.session != nil {
 		if prev := m.session.SessionManager(); prev != nil && prev != manager {
 			_ = prev.DiscardIfEmpty()
+			m.queue = nil
 		}
 		m.session.Dispose()
 	}

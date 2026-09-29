@@ -24,7 +24,11 @@ import (
 var accent = lipgloss.NewStyle().Foreground(lipgloss.Color("#f0b75a"))
 var muted = lipgloss.NewStyle().Foreground(lipgloss.Color("#9999a5"))
 
-type doneMsg struct{ err error }
+type doneMsg struct {
+	err  error
+	text string
+	gen  uint64
+}
 type choice struct {
 	label, path string
 	model       ai.Model
@@ -51,11 +55,18 @@ type model struct {
 	form           *setupForm
 	configBusy     bool
 	login          *loginAttempt
+	queue          []string
+	promptGen      uint64
 }
+
+const (
+	composerPlaceholder = "Ask maiku, or type /help for commands…"
+	queuePlaceholder    = "Queue a follow-up…"
+)
 
 func newModel(ctx context.Context, cwd string, opts options) *model {
 	input := textarea.New()
-	input.Placeholder = "Ask maiku, or type /help for commands…"
+	input.Placeholder = composerPlaceholder
 	input.ShowLineNumbers = false
 	input.CharLimit = 0
 	input.SetHeight(3)
@@ -87,12 +98,25 @@ func (m *model) waitEvent() tea.Msg {
 	}
 }
 func (m *model) resize() {
-	m.input.SetWidth(max(1, m.width-4))
-	m.viewport.Width = max(1, m.width-4)
-	m.viewport.Height = max(1, m.height-10)
+	m.layout()
 	m.refresh(false)
 }
+
+func (m *model) queueChrome() int {
+	if len(m.queue) == 0 {
+		return 0
+	}
+	return 1 + min(len(m.queue), 4)
+}
+
+func (m *model) layout() {
+	m.input.SetWidth(max(1, m.width-4))
+	m.viewport.Width = max(1, m.width-4)
+	m.viewport.Height = max(1, m.height-10-m.queueChrome())
+}
+
 func (m *model) refresh(bottom bool) {
+	m.layout()
 	var b strings.Builder
 	for _, msg := range m.messages {
 		b.WriteString(renderMessage(msg))
@@ -228,12 +252,32 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case doneMsg:
-		m.busy = false
 		m.live = nil
-		m.status = "Ready"
-		if msg.err != nil {
-			m.status = msg.err.Error()
+		if msg.gen != m.promptGen {
+			m.busy = false
+			if m.status == "Stopping…" {
+				m.status = "Ready"
+				m.input.Placeholder = composerPlaceholder
+			}
+			m.refresh(false)
+			return m, m.waitEvent
 		}
+		if msg.err != nil {
+			m.busy = false
+			m.status = msg.err.Error()
+			m.input.Placeholder = composerPlaceholder
+			if msg.text != "" {
+				m.queue = append([]string{msg.text}, m.queue...)
+			}
+			m.refresh(false)
+			return m, m.waitEvent
+		}
+		m.busy = false
+		if cmd := m.flushQueue(true); cmd != nil {
+			return m, cmd
+		}
+		m.status = "Ready"
+		m.input.Placeholder = composerPlaceholder
 		m.refresh(false)
 		return m, m.waitEvent
 	case agent.AgentEvent:
@@ -266,8 +310,8 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.String() == "ctrl+c" {
 			if m.busy {
-				m.session.Abort()
-				m.status = "Stopping…"
+				m.stop()
+				m.refresh(false)
 				return m, nil
 			}
 			return m, tea.Quit
@@ -293,8 +337,17 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "esc":
 			if m.busy {
-				m.session.Abort()
-				m.status = "Stopping…"
+				m.stop()
+				m.notice = ""
+				m.refresh(false)
+				return m, nil
+			}
+			if len(m.queue) > 0 {
+				m.queue = nil
+				m.status = "Queue cleared"
+				m.notice = ""
+				m.refresh(false)
+				return m, nil
 			}
 			m.notice = ""
 			m.refresh(false)
@@ -313,43 +366,110 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
+		case "up", "down":
+			// A single-line composer has nothing to navigate. Over SSH the
+			// scroll wheel often arrives as these keys and would otherwise
+			// scroll the input's inner viewport into blank padding.
+			if m.input.LineCount() <= 1 {
+				var cmd tea.Cmd
+				m.viewport, cmd = m.viewport.Update(msg)
+				return m, cmd
+			}
 		case "enter":
 			text := strings.TrimSpace(m.input.Value())
 			if strings.HasPrefix(text, "/") && !strings.HasPrefix(text, "//") {
 				m.input.Reset()
 				return m, m.command(text)
 			}
-			if text == "" || m.busy || m.session == nil {
-				return m, nil
-			}
-			m.input.Reset()
 			if strings.HasPrefix(text, "//") {
 				text = strings.TrimPrefix(text, "/")
 			}
+			if text == "" {
+				if !m.busy && len(m.queue) > 0 {
+					m.notice = ""
+					return m, m.flushQueue(false)
+				}
+				return m, nil
+			}
+			if m.session == nil {
+				return m, nil
+			}
+			if m.busy {
+				m.queue = append(m.queue, text)
+				m.input.Reset()
+				m.notice = ""
+				m.refresh(false)
+				return m, nil
+			}
+			m.input.Reset()
 			m.notice = ""
 			m.busy = true
 			m.status = "Working…"
-			session := m.session
-			return m, func() tea.Msg {
-				err := session.Prompt(m.ctx, text)
-				select {
-				case m.events <- doneMsg{err}:
-				case <-m.ctx.Done():
-				}
-				return nil
-			}
+			m.input.Placeholder = queuePlaceholder
+			m.refresh(true)
+			return m, m.runPrompt(text)
 		}
 	}
 	if m.form != nil {
 		return m, m.updateForm(message)
 	}
+	if key, ok := message.(tea.KeyMsg); ok && keyIsTerminalScroll(key) {
+		return m, nil
+	}
 	var cmd tea.Cmd
 	if _, ok := message.(tea.MouseMsg); ok {
+		// Scroll the transcript only. The composer must not receive wheel
+		// events; over SSH those sequences otherwise land in the input.
 		m.viewport, cmd = m.viewport.Update(message)
-	} else {
-		m.input, cmd = m.input.Update(message)
+		return m, cmd
 	}
+	m.input, cmd = m.input.Update(message)
+	m.sanitizeInput()
 	return m, cmd
+}
+
+func (m *model) stop() {
+	if m.session != nil {
+		m.session.Abort()
+	}
+	m.queue = nil
+	m.promptGen++
+	m.status = "Stopping…"
+	m.input.Placeholder = composerPlaceholder
+}
+
+func (m *model) runPrompt(text string) tea.Cmd {
+	session := m.session
+	gen := m.promptGen
+	return func() tea.Msg {
+		var err error
+		if session != nil {
+			err = session.Prompt(m.ctx, text)
+		}
+		select {
+		case m.events <- doneMsg{err: err, text: text, gen: gen}:
+		case <-m.ctx.Done():
+		}
+		return nil
+	}
+}
+
+func (m *model) flushQueue(wait bool) tea.Cmd {
+	if len(m.queue) == 0 || m.session == nil {
+		return nil
+	}
+	next := m.queue[0]
+	m.queue = m.queue[1:]
+	m.busy = true
+	m.status = "Working…"
+	m.input.Placeholder = queuePlaceholder
+	m.refresh(true)
+	cmd := m.runPrompt(next)
+	if wait {
+		// doneMsg was delivered by waitEvent, so that listener has returned.
+		return tea.Batch(m.waitEvent, cmd)
+	}
+	return cmd
 }
 
 func (m *model) openPicker(models bool) {
@@ -463,5 +583,15 @@ func (m *model) View() string {
 		snapshot := m.mcp.Snapshot()
 		status += fmt.Sprintf("  · %d tokens · MCP %d/%d", tokens, snapshot.Connected, snapshot.Configured)
 	}
-	return lipgloss.NewStyle().Padding(0, 1).Render(ansi.Truncate(header, max(1, m.width-2), "…") + "\n" + muted.Render(strings.Repeat("─", max(1, m.width-2))) + "\n" + body + "\n" + lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#303039")).Render(m.input.View()) + "\n" + muted.Render(ansi.Truncate(status, max(1, m.width-2), "…")) + "\n" + muted.Render(ansi.Truncate("/help commands · Enter send · Alt+Enter newline · PgUp/Dn scroll · Esc stop · ^C quit", max(1, m.width-2), "…")))
+	if len(m.queue) > 0 {
+		status += fmt.Sprintf("  · %d queued", len(m.queue))
+	}
+	composer := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#303039")).Render(m.composerView())
+	below := body + "\n"
+	if queued := m.queueView(); queued != "" {
+		below += queued + "\n"
+	}
+	below += composer
+	hint := "/help commands · Enter send · Enter queues while working · Alt+Enter newline · PgUp/Dn scroll · Esc stop · ^C quit"
+	return lipgloss.NewStyle().Padding(0, 1).Render(ansi.Truncate(header, max(1, m.width-2), "…") + "\n" + muted.Render(strings.Repeat("─", max(1, m.width-2))) + "\n" + below + "\n" + muted.Render(ansi.Truncate(status, max(1, m.width-2), "…")) + "\n" + muted.Render(ansi.Truncate(hint, max(1, m.width-2), "…")))
 }

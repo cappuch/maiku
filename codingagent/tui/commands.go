@@ -74,9 +74,14 @@ func (m *model) command(text string) tea.Cmd {
 			m.cancelLogin()
 			return nil
 		}
-		if m.busy && m.session != nil {
-			m.session.Abort()
-			m.status = "Stopping…"
+		if m.busy {
+			m.stop()
+			return nil
+		}
+		if len(m.queue) > 0 {
+			m.queue = nil
+			m.status = "Queue cleared"
+			m.refresh(false)
 		}
 		return nil
 	case "/quit", "/exit":
