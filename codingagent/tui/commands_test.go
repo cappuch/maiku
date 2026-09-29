@@ -324,12 +324,22 @@ func TestModelsDirectSelectionAndSessionResume(t *testing.T) {
 	if m.selected.ID != "two" || m.session.SessionManager().Header().ID != id {
 		t.Fatal("model selection reset session")
 	}
+	if err := m.session.SessionManager().AppendMessage(ai.Message{
+		Role:        "user",
+		UserContent: []ai.TextContent{{Type: "text", Text: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	submitCommand(m, "/sessions new")
 	if m.session.SessionManager().Header().ID == id {
 		t.Fatal("new session not created")
 	}
+	m.selected = ai.Model{ID: "one", Provider: "test-selector"}
 	submitCommand(m, "/sessions "+id)
 	if m.session.SessionManager().Header().ID != id {
 		t.Fatalf("session not resumed: %s", m.notice)
+	}
+	if m.selected.Provider != "test-selector" || m.selected.ID != "two" {
+		t.Fatalf("resumed model = %s/%s", m.selected.Provider, m.selected.ID)
 	}
 }
