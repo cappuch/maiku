@@ -27,6 +27,7 @@ const commandHelp = `Commands
 /mcp                      List MCP servers and connection status
 /mcp add                  Add a stdio, HTTP, or SSE server
 /mcp reload               Reload connections and available tools
+/compact                  Summarize older history to free context
 /help                     Show this help
 /stop                     Stop the current run
 /quit                     Exit
@@ -35,7 +36,7 @@ Setup is saved globally and shared with the desktop app.
 API keys are entered in a masked field, never added to the conversation.
 Use // at the start to send a literal slash-prefixed prompt.`
 
-var slashCommands = []string{"/sessions", "/models", "/providers", "/provider add", "/codex-login", "/miru-login", "/mcp add", "/mcp reload", "/mcp", "/new", "/help", "/stop", "/quit"}
+var slashCommands = []string{"/sessions", "/models", "/providers", "/provider add", "/compact", "/codex-login", "/miru-login", "/mcp add", "/mcp reload", "/mcp", "/new", "/help", "/stop", "/quit"}
 
 func commandMatches(value string) []string {
 	if !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") {
@@ -130,6 +131,12 @@ func (m *model) command(text string) tea.Cmd {
 		}
 	case "/new":
 		m.newSession()
+	case "/compact":
+		if rest != "" {
+			m.showNotice("Usage: /compact")
+			return nil
+		}
+		return m.startCompact()
 	case "/models", "/model":
 		if rest == "refresh" {
 			return m.refreshModels()

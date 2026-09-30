@@ -12,6 +12,7 @@ import (
 	"github.com/cappuch/maiku/ai"
 	"github.com/cappuch/maiku/codingagent"
 	"github.com/cappuch/maiku/codingagent/core"
+	"github.com/cappuch/maiku/codingagent/core/compaction"
 	mcp "github.com/cappuch/maiku/codingagent/core/mcp"
 	tea "github.com/charmbracelet/bubbletea"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -61,6 +62,77 @@ func TestSlashCommandsWithoutSession(t *testing.T) {
 	submitCommand(m, "/provider add openai")
 	if m.form == nil || m.form.input.Value() != "openai" {
 		t.Fatal("provider setup unavailable before model selection")
+	}
+}
+
+func TestCompactCommandRequiresASession(t *testing.T) {
+	m := isolatedModel(t)
+	if cmd := submitCommand(m, "/compact extra"); cmd != nil || !strings.Contains(m.notice, "Usage: /compact") || m.busy {
+		t.Fatal("compact accepted arguments")
+	}
+	submitCommand(m, "/compact")
+	if !strings.Contains(m.notice, "No active session") || m.busy || len(m.messages) != 0 {
+		t.Fatal("compact ran without a session")
+	}
+}
+
+func TestCompactCommandRewritesTheSession(t *testing.T) {
+	m := isolatedModel(t)
+	manager := core.NewSessionManager(t.TempDir(), t.TempDir(), true)
+	messages := []ai.Message{
+		{Role: "user", UserContent: strings.Repeat("old ", 2000), Timestamp: 1},
+		{Role: "assistant", AssistantContent: []ai.AssistantContentBlock{ai.TextBlock("old reply")}, Timestamp: 2},
+		{Role: "user", UserContent: strings.Repeat("recent ", 2000), Timestamp: 3},
+	}
+	for _, message := range messages {
+		if err := manager.AppendMessage(message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.session = core.NewAgentSession(core.AgentSessionOptions{
+		Model:      ai.Model{ID: "test", Provider: "test", ContextWindow: 100_000, MaxTokens: 4096},
+		Sessions:   manager,
+		Compaction: compaction.Settings{Enabled: true, ReserveTokens: 1000, KeepRecentTokens: 300},
+		StreamFn: func(model ai.Model, _ ai.Context, _ *ai.SimpleStreamOptions) *ai.AssistantMessageEventStream {
+			stream := ai.NewAssistantMessageEventStream()
+			message := ai.AssistantMessage{
+				Role:       "assistant",
+				Content:    []ai.AssistantContentBlock{ai.TextBlock("SUMMARY TEXT")},
+				Model:      model.ID,
+				Usage:      ai.EmptyUsage(),
+				StopReason: ai.StopStop,
+			}
+			stream.Push(ai.AssistantMessageEvent{Type: "done", Reason: ai.StopStop, Message: &message})
+			return stream
+		},
+	})
+	m.messages = manager.Messages()
+
+	cmd := submitCommand(m, "/compact")
+	if cmd == nil || !m.busy || m.status != "Compacting…" {
+		t.Fatal("compact did not start")
+	}
+	if cmd() != nil {
+		t.Fatal("compact command returned a message directly")
+	}
+	select {
+	case msg := <-m.events:
+		m.Update(msg)
+	default:
+		t.Fatal("compact did not finish")
+	}
+	if m.busy || !strings.Contains(m.notice, "Compacted") {
+		t.Fatalf("compact result = busy:%v notice:%q", m.busy, m.notice)
+	}
+	if len(m.messages) >= len(messages) || len(m.messages) == 0 {
+		t.Fatalf("transcript length = %d, want a shorter summary", len(m.messages))
+	}
+	reloaded, err := core.LoadSessionManager(manager.File())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Messages()) != len(m.messages) {
+		t.Fatalf("saved transcript = %d messages, view has %d", len(reloaded.Messages()), len(m.messages))
 	}
 }
 

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/cappuch/maiku/ai"
 	"github.com/cappuch/maiku/codingagent"
 	"github.com/cappuch/maiku/codingagent/core"
+	"github.com/cappuch/maiku/codingagent/core/compaction"
 	mcp "github.com/cappuch/maiku/codingagent/core/mcp"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -28,6 +30,11 @@ type doneMsg struct {
 	err  error
 	text string
 	gen  uint64
+}
+type compactDoneMsg struct {
+	result compaction.Result
+	err    error
+	gen    uint64
 }
 type choice struct {
 	label, path string
@@ -57,6 +64,7 @@ type model struct {
 	login          *loginAttempt
 	queue          []string
 	promptGen      uint64
+	runCancel      context.CancelFunc
 }
 
 const (
@@ -280,6 +288,8 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.Placeholder = composerPlaceholder
 		m.refresh(false)
 		return m, m.waitEvent
+	case compactDoneMsg:
+		return m, m.finishCompact(msg)
 	case agent.AgentEvent:
 		bottom := m.viewport.AtBottom()
 		switch msg.Type {
@@ -429,6 +439,10 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) stop() {
+	if m.runCancel != nil {
+		m.runCancel()
+		m.runCancel = nil
+	}
 	if m.session != nil {
 		m.session.Abort()
 	}
@@ -436,6 +450,87 @@ func (m *model) stop() {
 	m.promptGen++
 	m.status = "Stopping…"
 	m.input.Placeholder = composerPlaceholder
+}
+
+func (m *model) startCompact() tea.Cmd {
+	if m.session == nil {
+		m.showNotice("No active session.")
+		return nil
+	}
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.runCancel = cancel
+	m.busy = true
+	m.notice = ""
+	m.status = "Compacting…"
+	m.input.Placeholder = queuePlaceholder
+	m.refresh(false)
+	session := m.session
+	gen := m.promptGen
+	return func() tea.Msg {
+		result, err := session.Compact(ctx)
+		select {
+		case m.events <- compactDoneMsg{result: result, err: err, gen: gen}:
+		case <-m.ctx.Done():
+		}
+		return nil
+	}
+}
+
+func (m *model) finishCompact(msg compactDoneMsg) tea.Cmd {
+	if m.runCancel != nil {
+		m.runCancel()
+		m.runCancel = nil
+	}
+	m.live = nil
+	if msg.gen != m.promptGen {
+		m.busy = false
+		if m.status == "Stopping…" {
+			m.status = "Ready"
+			m.input.Placeholder = composerPlaceholder
+		}
+		m.refresh(false)
+		return m.waitEvent
+	}
+	m.busy = false
+	m.input.Placeholder = composerPlaceholder
+	if msg.err != nil {
+		if errors.Is(msg.err, context.Canceled) {
+			m.status = "Ready"
+			m.refresh(false)
+			return m.waitEvent
+		}
+		notice := msg.err.Error()
+		if errors.Is(msg.err, compaction.ErrNothingToCompact) {
+			notice = "Not enough conversation history to compact"
+		}
+		m.status = notice
+		m.notice = notice
+		m.refresh(false)
+		return m.waitEvent
+	}
+	m.messages = msg.result.Messages
+	m.notice = compactNotice(msg.result)
+	m.status = "Ready"
+	if cmd := m.flushQueue(true); cmd != nil {
+		return cmd
+	}
+	m.refresh(true)
+	return m.waitEvent
+}
+
+func compactNotice(result compaction.Result) string {
+	parts := []string{"Compacted"}
+	if result.MessagesRemoved > 0 {
+		label := "messages"
+		if result.MessagesRemoved == 1 {
+			label = "message"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", result.MessagesRemoved, label))
+	}
+	if result.TokensBefore > 0 && result.TokensAfter < result.TokensBefore {
+		parts = append(parts, fmt.Sprintf("%d → %d tokens", result.TokensBefore, result.TokensAfter))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m *model) runPrompt(text string) tea.Cmd {

@@ -93,6 +93,9 @@ type AgentSession struct {
 	sessions *SessionManager
 	model    ai.Model
 	apiKey   string
+	// streamFn overrides the summarizer used by manual and automatic compaction.
+	// Nil keeps the default provider stream.
+	streamFn agent.StreamFn
 
 	compaction        compaction.Settings
 	onCompaction      func(compaction.Result)
@@ -187,6 +190,7 @@ func NewAgentSession(options AgentSessionOptions) *AgentSession {
 		sessions:          options.Sessions,
 		model:             model,
 		apiKey:            apiKey,
+		streamFn:          options.StreamFn,
 		compaction:        options.Compaction,
 		onCompaction:      options.OnCompaction,
 		onCompactionError: options.OnCompactionError,
@@ -351,11 +355,17 @@ func (s *AgentSession) Compact(ctx context.Context) (compaction.Result, error) {
 		APIKey:          s.apiKey,
 		ThinkingLevel:   state.ThinkingLevel,
 		PreviousSummary: compaction.ExtractPreviousSummary(messages),
+		StreamFn:        s.streamFn,
 	})
 	if err != nil {
 		return compaction.Result{}, err
 	}
 
+	if s.sessions != nil {
+		if err := s.sessions.ReplaceMessages(result.Messages); err != nil {
+			return compaction.Result{}, err
+		}
+	}
 	s.agent.SetMessages(result.Messages)
 	if s.onCompaction != nil {
 		s.onCompaction(result)
