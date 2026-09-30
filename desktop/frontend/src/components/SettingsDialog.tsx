@@ -4,8 +4,10 @@ import { Code2, FlaskConical, KeyRound, Pencil, Plus, RefreshCw, Search, Server,
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import {
   GetAutoUpdateEnabled,
+  GetComputerUseEnabled,
   GetConductorEnabled,
   SetAutoUpdateEnabled,
+  SetComputerUseEnabled,
   SetConductorEnabled,
   ListCustomProviders,
   ListMCPServers,
@@ -412,16 +414,18 @@ export function SettingsDialog({
 }
 
 function ExperimentalSettingsPane() {
-  const [enabled, setEnabled] = useState(false);
+  const [conductor, setConductor] = useState(false);
+  const [computerUse, setComputerUse] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<"conductor" | "computer" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    GetConductorEnabled().then((value) => {
+    Promise.all([GetConductorEnabled(), GetComputerUseEnabled()]).then(([conductorOn, computerOn]) => {
       if (active) {
-        setEnabled(value);
+        setConductor(conductorOn);
+        setComputerUse(computerOn);
         setLoaded(true);
       }
     }).catch((err: unknown) => {
@@ -430,18 +434,33 @@ function ExperimentalSettingsPane() {
     return () => { active = false; };
   }, []);
 
-  const save = async (value: boolean) => {
-    const previous = enabled;
-    setEnabled(value);
-    setSaving(true);
+  const saveConductor = async (value: boolean) => {
+    const previous = conductor;
+    setConductor(value);
+    setSaving("conductor");
     setError(null);
     try {
       await SetConductorEnabled(value);
     } catch (err) {
-      setEnabled(previous);
+      setConductor(previous);
       setError(String(err));
     } finally {
-      setSaving(false);
+      setSaving(null);
+    }
+  };
+
+  const saveComputerUse = async (value: boolean) => {
+    const previous = computerUse;
+    setComputerUse(value);
+    setSaving("computer");
+    setError(null);
+    try {
+      await SetComputerUseEnabled(value);
+    } catch (err) {
+      setComputerUse(previous);
+      setError(String(err));
+    } finally {
+      setSaving(null);
     }
   };
 
@@ -451,24 +470,41 @@ function ExperimentalSettingsPane() {
         <div className="mb-6">
           <h3 className="text-sm font-semibold">Experimental</h3>
           <p className="mt-1 text-xs leading-5 text-[var(--color-muted)]">
-            One prompt. One agent talks to you and directs the others.
+            Optional capabilities. They stay off until you turn them on.
           </p>
         </div>
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={enabled}
-            disabled={!loaded || saving}
-            onChange={(event) => void save(event.target.checked)}
-          />
-          <span>
-            <span className="block text-sm">Conductor</span>
-            <span className="mt-1 block text-xs leading-5 text-[var(--color-muted)]">
-              You talk to a single agent. It sends monitors to watch the work and report back. They do not talk to you.
+        <div className="space-y-3">
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={computerUse}
+              disabled={!loaded || saving !== null}
+              onChange={(event) => void saveComputerUse(event.target.checked)}
+            />
+            <span>
+              <span className="block text-sm">Computer use</span>
+              <span className="mt-1 block text-xs leading-5 text-[var(--color-muted)]">
+                Let the agent see your screen and control the desktop. Off by default.
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={conductor}
+              disabled={!loaded || saving !== null}
+              onChange={(event) => void saveConductor(event.target.checked)}
+            />
+            <span>
+              <span className="block text-sm">Conductor</span>
+              <span className="mt-1 block text-xs leading-5 text-[var(--color-muted)]">
+                You talk to a single agent. It sends monitors to watch the work and report back. They do not talk to you.
+              </span>
+            </span>
+          </label>
+        </div>
         {error ? <p role="alert" className="mt-3 text-[11px] text-[var(--color-danger)]">{error}</p> : null}
       </div>
     </div>

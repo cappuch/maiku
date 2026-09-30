@@ -30,6 +30,10 @@ export function GetAutoUpdateEnabled() {
   return window['go']['main']['App']['GetAutoUpdateEnabled']();
 }
 
+export function GetComputerUseEnabled() {
+  return window['go']['main']['App']['GetComputerUseEnabled']();
+}
+
 export function GetConductorEnabled() {
   return window['go']['main']['App']['GetConductorEnabled']();
 }
@@ -120,6 +124,10 @@ export function SetAPIKey(arg1, arg2) {
 
 export function SetAutoUpdateEnabled(arg1) {
   return window['go']['main']['App']['SetAutoUpdateEnabled'](arg1);
+}
+
+export function SetComputerUseEnabled(arg1) {
+  return window['go']['main']['App']['SetComputerUseEnabled'](arg1);
 }
 
 export function SetConductorEnabled(arg1) {

@@ -30,8 +30,8 @@ func TestRootAgentConfigHonorsSubagentSetting(t *testing.T) {
 	if !includesTool(tools, core.SubagentToolName) {
 		t.Fatal("enabled root config is missing the subagent tool")
 	}
-	if !includesTool(tools, "computer") || !strings.Contains(prompt, "- computer:") {
-		t.Fatal("desktop root config is missing computer use")
+	if includesTool(tools, "computer") || strings.Contains(prompt, "- computer:") {
+		t.Fatal("computer use should be off until enabled in settings")
 	}
 	if !strings.Contains(prompt, "- subagent:") || !strings.Contains(prompt, "Use subagents") {
 		t.Fatal("enabled root prompt is missing subagent guidance")
@@ -105,6 +105,55 @@ func TestUIStreamDeltasAvoidCumulativePayloads(t *testing.T) {
 	text, _, replace = app.streamDeltas("session", "fresh", "")
 	if text != "fresh" || replace {
 		t.Fatalf("delta after clear = (%q, %v)", text, replace)
+	}
+}
+
+func TestSetComputerUseEnabledUpdatesLiveSessions(t *testing.T) {
+	cwd := t.TempDir()
+	agentDir := t.TempDir()
+	t.Setenv(codingagent.ENV_AGENT_DIR, agentDir)
+
+	tools, prompt := rootAgentConfig(cwd, agentDir, nil, true)
+	if includesTool(tools, "computer") || strings.Contains(prompt, "- computer:") {
+		t.Fatal("computer use should be off by default")
+	}
+	session := core.NewAgentSession(core.AgentSessionOptions{
+		SystemPrompt: prompt,
+		Tools:        tools,
+	})
+	defer session.Dispose()
+
+	app := &App{
+		cwd: cwd,
+		live: map[string]*liveSession{
+			"live": {id: "live", session: session},
+		},
+		activeID: "live",
+	}
+
+	if err := app.SetComputerUseEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	state := session.State()
+	if !includesTool(state.Tools, "computer") {
+		t.Fatal("live session did not gain computer use after enabling it")
+	}
+	if !strings.Contains(state.SystemPrompt, "- computer:") {
+		t.Fatal("live session did not gain computer use prompt guidance")
+	}
+	if !core.LoadSettings(cwd, agentDir).Settings.ComputerUseEnabled() {
+		t.Fatal("enabled setting was not persisted")
+	}
+
+	if err := app.SetComputerUseEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	state = session.State()
+	if includesTool(state.Tools, "computer") || strings.Contains(state.SystemPrompt, "- computer:") {
+		t.Fatal("live session retained computer use after disabling it")
+	}
+	if core.LoadSettings(cwd, agentDir).Settings.ComputerUseEnabled() {
+		t.Fatal("disabled setting was not persisted")
 	}
 }
 

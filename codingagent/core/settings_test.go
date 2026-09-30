@@ -139,6 +139,9 @@ func TestLoadSettingsDefaultsWithoutFiles(t *testing.T) {
 	if !settings.SubagentEnabled() {
 		t.Error("subagent should default to enabled")
 	}
+	if settings.ComputerUseEnabled() {
+		t.Error("computer use should default to off")
+	}
 	if !settings.CompactionEnabled() {
 		t.Error("compaction should default to enabled")
 	}
@@ -173,6 +176,25 @@ func TestSetSubagentEnabledPersistsAndPreservesUnknownSettings(t *testing.T) {
 	}
 	if !LoadSettings(t.TempDir(), agentDir).Settings.SubagentEnabled() {
 		t.Error("subagent should be enabled after persisting true")
+	}
+}
+
+func TestSetComputerUseEnabledPersists(t *testing.T) {
+	agentDir := t.TempDir()
+	if LoadSettings(t.TempDir(), agentDir).Settings.ComputerUseEnabled() {
+		t.Fatal("computer use should default to off")
+	}
+	if err := SetComputerUseEnabled(agentDir, true); err != nil {
+		t.Fatal(err)
+	}
+	if !LoadSettings(t.TempDir(), agentDir).Settings.ComputerUseEnabled() {
+		t.Fatal("computer use should be on after persisting true")
+	}
+	if err := SetComputerUseEnabled(agentDir, false); err != nil {
+		t.Fatal(err)
+	}
+	if LoadSettings(t.TempDir(), agentDir).Settings.ComputerUseEnabled() {
+		t.Fatal("computer use should be off after persisting false")
 	}
 }
 

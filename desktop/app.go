@@ -601,8 +601,10 @@ func (a *App) rootAgentConfigLocked(cwd, agentDir string, subagents *core.Subage
 			ShellCommandPrefix: settings.ShellCommandPrefix,
 		},
 	)
-	if computerTool := computer.Tool(); computerTool != nil {
-		tools = append(tools, *computerTool)
+	if settings.ComputerUseEnabled() {
+		if computerTool := computer.Tool(); computerTool != nil {
+			tools = append(tools, *computerTool)
+		}
 	}
 	snippets := map[string]string{}
 	for k, v := range core.DefaultToolSnippets {
@@ -1267,6 +1269,21 @@ func (a *App) SetThinking(level string) error {
 		}
 	}
 	return nil
+}
+
+// GetComputerUseEnabled reports whether the desktop agent may control the screen.
+func (a *App) GetComputerUseEnabled() bool {
+	return core.LoadSettings(a.cwd, codingagent.GetAgentDir()).Settings.ComputerUseEnabled()
+}
+
+// SetComputerUseEnabled persists the computer-use toggle and applies it to
+// every live root session.
+func (a *App) SetComputerUseEnabled(enabled bool) error {
+	agentDir := codingagent.GetAgentDir()
+	if err := core.SetComputerUseEnabled(agentDir, enabled); err != nil {
+		return err
+	}
+	return a.applyRootConfig(agentDir)
 }
 
 // GetConductorEnabled reports the experimental one-agent mode.
