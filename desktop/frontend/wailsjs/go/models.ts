@@ -6,6 +6,8 @@ export namespace core {
 	    baseUrl: string;
 	    api?: string;
 	    models?: string[];
+	    previousId?: string;
+	    apiKey?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CustomProvider(source);
@@ -18,6 +20,8 @@ export namespace core {
 	        this.baseUrl = source["baseUrl"];
 	        this.api = source["api"];
 	        this.models = source["models"];
+	        this.previousId = source["previousId"];
+	        this.apiKey = source["apiKey"];
 	    }
 	}
 	export class SessionSummary {

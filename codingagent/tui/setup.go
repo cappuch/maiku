@@ -9,13 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/cappuch/maiku/ai"
 	"github.com/cappuch/maiku/ai/providers"
 	"github.com/cappuch/maiku/codingagent"
 	"github.com/cappuch/maiku/codingagent/core"
 	mcp "github.com/cappuch/maiku/codingagent/core/mcp"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type setupField struct {
@@ -23,12 +24,13 @@ type setupField struct {
 	secret           bool
 }
 type setupForm struct {
-	kind   string
-	fields []setupField
-	values map[string]string
-	index  int
-	input  textinput.Model
-	err    string
+	kind    string
+	fields  []setupField
+	values  map[string]string
+	index   int
+	input   textinput.Model
+	err     string
+	editing bool
 }
 
 func newForm(kind string, first setupField) *setupForm {
@@ -81,12 +83,28 @@ func (f *setupForm) accept(cwd, agentDir string) error {
 		if _, builtin := providers.Find(value); builtin {
 			f.fields = append(f.fields, setupField{key: "key", label: "API key", hint: "blank keeps the existing key or environment setting", secret: true})
 		} else {
+			var existing *core.CustomProvider
 			for _, p := range core.LoadCustomProviders(agentDir) {
 				if p.ID == value {
-					return fmt.Errorf("that custom provider already exists; choose a new ID")
+					current := p
+					existing = &current
+					break
 				}
 			}
-			f.fields = append(f.fields, setupField{key: "url", label: "OpenAI-compatible base URL", hint: "https://example.com/v1"}, setupField{key: "models", label: "Model IDs (optional)", hint: "comma-separated fallback IDs; blank discovers /models"}, setupField{key: "key", label: "API key", hint: "blank keeps an environment key; keyless servers accept a placeholder", secret: true})
+			f.editing = existing != nil
+			f.fields = append(f.fields,
+				setupField{key: "display", label: "Display name", hint: "blank uses the ID"},
+				setupField{key: "url", label: "Base URL", hint: "https://example.com/v1"},
+				setupField{key: "api", label: "API", hint: "openai-completions, openai-responses, or anthropic-messages"},
+				setupField{key: "models", label: "Model IDs (optional)", hint: "comma-separated fallback IDs; blank discovers /models"},
+				setupField{key: "key", label: "API key", hint: "blank keeps the saved key", secret: true},
+			)
+			if existing != nil {
+				f.values["display"] = existing.Name
+				f.values["url"] = existing.BaseURL
+				f.values["api"] = existing.API
+				f.values["models"] = strings.Join(existing.Models, ", ")
+			}
 		}
 	case "name":
 		if value == "" {
@@ -116,6 +134,16 @@ func (f *setupForm) accept(cwd, agentDir string) error {
 	case "url":
 		if !validEndpoint(value) {
 			return fmt.Errorf("enter an http:// or https:// URL with a host and no embedded credentials")
+		}
+	case "api":
+		value = strings.ToLower(value)
+		if value == "" {
+			value = ai.APIOpenAICompletions
+		}
+		switch value {
+		case ai.APIOpenAICompletions, ai.APIOpenAIResponses, ai.APIAnthropicMessages:
+		default:
+			return fmt.Errorf("api must be openai-completions, openai-responses, or anthropic-messages")
 		}
 	case "command":
 		if value == "" {
@@ -212,7 +240,11 @@ func saveProviderConfig(agentDir string, store *core.AuthStorage, v map[string]s
 				models = append(models, id)
 			}
 		}
-		if err := core.UpsertCustomProvider(agentDir, core.CustomProvider{ID: id, Name: id, BaseURL: v["url"], Models: models}); err != nil {
+		name := v["display"]
+		if name == "" {
+			name = id
+		}
+		if err := core.UpsertCustomProvider(agentDir, core.CustomProvider{ID: id, Name: name, BaseURL: v["url"], API: v["api"], Models: models}); err != nil {
 			return err
 		}
 	}
@@ -228,6 +260,10 @@ func (f *setupForm) View(width, height int) string {
 	input := f.input
 	input.Width = max(1, width-4)
 	field := f.fields[f.index]
-	text := accent.Render("Add "+f.kind) + "\n\n" + field.label + "\n" + muted.Render(field.hint) + "\n\n" + input.View() + "\n\n" + f.err + "\n\nEnter continues / saves the final field · Esc cancels\nSaved globally; existing configuration is preserved."
+	title := "Add " + f.kind
+	if f.editing {
+		title = "Edit provider"
+	}
+	text := accent.Render(title) + "\n\n" + field.label + "\n" + muted.Render(field.hint) + "\n\n" + input.View() + "\n\n" + f.err + "\n\nEnter continues / saves the final field · Esc cancels\nSaved globally; existing configuration is preserved."
 	return lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height).Render(text)
 }

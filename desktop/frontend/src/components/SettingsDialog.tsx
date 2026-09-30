@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Code2, FlaskConical, KeyRound, Plus, RefreshCw, Search, Server, Trash2, X } from "lucide-react";
+import { Code2, FlaskConical, KeyRound, Pencil, Plus, RefreshCw, Search, Server, Trash2, X } from "lucide-react";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import {
   GetAutoUpdateEnabled,
@@ -41,6 +41,7 @@ export function SettingsDialog({
   codexLogin?: CodexLoginHandlers;
   initialTab?: SettingsTab;
 }) {
+  const [customIds, setCustomIds] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -101,14 +102,15 @@ export function SettingsDialog({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const providers = keys.filter((k) => k.provider !== "miru");
+    const hidden = new Set(customIds);
+    const providers = keys.filter((k) => k.provider !== "miru" && !hidden.has(k.provider));
     const matching = !q ? providers : providers.filter((k) => {
       const name = (k.name || "").toLowerCase();
       const id = k.provider.toLowerCase();
       return name.includes(q) || id.includes(q);
     });
     return [...matching.filter((k) => k.hasKey), ...matching.filter((k) => !k.hasKey)];
-  }, [keys, query]);
+  }, [keys, query, customIds]);
 
   const startCodexLogin = async () => {
     if (!codexLogin) return;
@@ -217,7 +219,12 @@ export function SettingsDialog({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
           <div className="mx-auto w-full max-w-4xl space-y-3 pb-8">
-            <CustomProvidersPanel onChanged={() => { void onProvidersChanged?.(); }} />
+            <CustomProvidersPanel
+              keys={keys}
+              onIds={setCustomIds}
+              onSave={onSave}
+              onChanged={() => { void onProvidersChanged?.(); }}
+            />
             {filtered.length === 0 && (
               <p className="py-6 text-center text-xs text-[var(--color-muted)]">
                 No providers match “{query.trim()}”
@@ -533,15 +540,32 @@ function UpdatesSettingsPane() {
   );
 }
 
-function CustomProvidersPanel({ onChanged }: { onChanged?: () => void }) {
+const customAPIChoices = ["openai-completions", "openai-responses", "anthropic-messages"];
+
+function CustomProvidersPanel({
+  keys,
+  onChanged,
+  onIds,
+  onSave,
+}: {
+  keys: APIKeyStatus[];
+  onChanged?: () => void;
+  onIds?: (ids: string[]) => void;
+  onSave?: (provider: string, key: string) => Promise<void> | void;
+}) {
   const [custom, setCustom] = useState<CustomProvider[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [originalId, setOriginalId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [api, setApi] = useState("openai-completions");
   const [modelsText, setModelsText] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+  const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
@@ -556,27 +580,54 @@ function CustomProvidersPanel({ onChanged }: { onChanged?: () => void }) {
     void refresh();
   }, []);
 
+  useEffect(() => {
+    onIds?.(custom.map((provider) => provider.id));
+  }, [custom, onIds]);
+
   const resetForm = () => {
     setShowForm(false);
+    setOriginalId(null);
     setId("");
     setName("");
     setBaseUrl("");
+    setApi("openai-completions");
     setModelsText("");
+    setApiKey("");
+  };
+
+  const startCreate = () => {
+    resetForm();
+    setShowForm(true);
+  };
+
+  const startEdit = (provider: CustomProvider) => {
+    setOriginalId(provider.id);
+    setId(provider.id);
+    setName(provider.name || provider.id);
+    setBaseUrl(provider.baseUrl);
+    setApi(provider.api || "openai-completions");
+    setModelsText(provider.models?.join(", ") ?? "");
+    setApiKey("");
+    setError(null);
+    setShowForm(true);
   };
 
   const save = async () => {
     setBusy(true);
     setError(null);
+    const nextID = id.trim();
     try {
       await UpsertCustomProvider({
-        id: id.trim(),
-        name: name.trim() || id.trim(),
+        id: nextID,
+        name: name.trim() || nextID,
         baseUrl: baseUrl.trim(),
-        api: "openai-completions",
+        api,
         models: modelsText
           .split(/[,\n]/)
-          .map((m) => m.trim())
+          .map((model) => model.trim())
           .filter(Boolean),
+        previousId: originalId && originalId !== nextID.toLowerCase() ? originalId : "",
+        apiKey: apiKey.trim(),
       });
       resetForm();
       await refresh();
@@ -588,18 +639,22 @@ function CustomProvidersPanel({ onChanged }: { onChanged?: () => void }) {
     }
   };
 
+  const fieldClass = "rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--color-accent-dim)]";
+  const apiChoices = api && !customAPIChoices.includes(api) ? [...customAPIChoices, api] : customAPIChoices;
+  const editingKey = originalId ? keys.find((key) => key.provider === originalId) : undefined;
+
   return (
     <div className="mb-6 rounded-xl border border-[var(--color-line)] bg-[var(--color-panel-2)] p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h4 className="text-xs font-semibold">Custom OpenAI-compatible routes</h4>
+          <h4 className="text-xs font-semibold">Custom routes</h4>
           <p className="mt-1 text-[11px] leading-5 text-[var(--color-muted)]">
-            Point maiku at any OpenAI-compatible <span className="font-mono">/v1</span> endpoint (Ollama, vLLM, LiteLLM, etc).
+            Point maiku at your own endpoint. Edit a route to change its URL, API, models, or key.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => setShowForm(true)}
+          onClick={startCreate}
           className="flex items-center gap-1 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-ink)]"
         >
           <Plus size={12} />
@@ -611,30 +666,57 @@ function CustomProvidersPanel({ onChanged }: { onChanged?: () => void }) {
 
       {showForm ? (
         <div className="mb-3 grid gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] p-3">
+          <div className="text-[11px] font-medium">{originalId ? `Edit ${originalId}` : "New route"}</div>
           <input
             value={id}
             onChange={(e) => setId(e.target.value)}
             placeholder="id (e.g. ollama)"
-            className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1.5 font-mono text-xs outline-none focus:border-[var(--color-accent-dim)]"
+            aria-label="Provider ID"
+            className={`${fieldClass} font-mono`}
           />
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Display name"
-            className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--color-accent-dim)]"
+            aria-label="Display name"
+            className={fieldClass}
           />
           <input
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="https://localhost:11434/v1"
-            className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1.5 font-mono text-xs outline-none focus:border-[var(--color-accent-dim)]"
+            aria-label="Base URL"
+            className={`${fieldClass} font-mono`}
           />
+          <select
+            value={api}
+            onChange={(e) => setApi(e.target.value)}
+            aria-label="API"
+            className={fieldClass}
+          >
+            {apiChoices.map((choice) => (
+              <option key={choice} value={choice}>{choice}</option>
+            ))}
+          </select>
           <input
             value={modelsText}
             onChange={(e) => setModelsText(e.target.value)}
             placeholder="Optional model ids (comma-separated)"
-            className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1.5 font-mono text-xs outline-none focus:border-[var(--color-accent-dim)]"
+            aria-label="Model IDs"
+            className={`${fieldClass} font-mono`}
           />
+          <label className="grid gap-1 text-[11px] text-[var(--color-muted)]">
+            API key
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={editingKey?.hasKey ? "•••••••• (leave blank to keep)" : "sk-…"}
+              aria-label="API key"
+              autoComplete="off"
+              className={`${fieldClass} font-mono`}
+            />
+          </label>
           <div className="flex gap-2">
             <button
               type="button"
@@ -642,7 +724,7 @@ function CustomProvidersPanel({ onChanged }: { onChanged?: () => void }) {
               onClick={() => void save()}
               className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-ink)] disabled:opacity-40"
             >
-              {busy ? "Saving…" : "Save"}
+              {busy ? "Saving…" : originalId ? "Save changes" : "Save"}
             </button>
             <button
               type="button"
@@ -659,33 +741,81 @@ function CustomProvidersPanel({ onChanged }: { onChanged?: () => void }) {
         <p className="text-[11px] text-[var(--color-muted)]">No custom routes yet.</p>
       ) : (
         <ul className="space-y-2">
-          {custom.map((provider) => (
+          {custom.map((provider) => {
+            const connected = keys.some((key) => key.provider === provider.id && key.hasKey);
+            return (
             <li key={provider.id} className="flex items-start justify-between gap-3 rounded-lg border border-[var(--color-line)] bg-[var(--color-ink)] px-3 py-2">
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="text-xs font-medium">{provider.name || provider.id}</div>
                 <div className="mt-0.5 truncate font-mono text-[10px] text-[var(--color-muted)]">{provider.baseUrl}</div>
-                {provider.models?.length ? (
-                  <div className="mt-0.5 text-[10px] text-[var(--color-muted)]">{provider.models.join(", ")}</div>
-                ) : null}
+                <div className="mt-0.5 text-[10px] text-[var(--color-muted)]">
+                  {provider.api || "openai-completions"}
+                  {provider.models?.length ? ` · ${provider.models.join(", ")}` : ""}
+                  {connected ? " · key saved" : ""}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    type="password"
+                    aria-label={`${provider.name || provider.id} API key`}
+                    placeholder={connected ? "•••••••• (leave blank to keep)" : "API key"}
+                    value={keyDrafts[provider.id] ?? ""}
+                    autoComplete="off"
+                    onChange={(e) => setKeyDrafts((drafts) => ({ ...drafts, [provider.id]: e.target.value }))}
+                    className="min-w-0 flex-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] px-3 py-1.5 font-mono text-xs outline-none focus:border-[var(--color-accent)]"
+                  />
+                  <button
+                    type="button"
+                    disabled={savingKey === provider.id || !(keyDrafts[provider.id] ?? "").trim()}
+                    onClick={() => void (async () => {
+                      const value = (keyDrafts[provider.id] ?? "").trim();
+                      if (!value) return;
+                      setSavingKey(provider.id);
+                      setError(null);
+                      try {
+                        await onSave?.(provider.id, value);
+                        setKeyDrafts((drafts) => ({ ...drafts, [provider.id]: "" }));
+                        onChanged?.();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : String(err));
+                      } finally {
+                        setSavingKey(null);
+                      }
+                    })()}
+                    className="rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-ink)] disabled:opacity-40"
+                  >
+                    {savingKey === provider.id ? "Saving…" : "Save"}
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => void (async () => {
-                  try {
-                    await RemoveCustomProvider(provider.id);
-                    await refresh();
-                    onChanged?.();
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : String(err));
-                  }
-                })()}
-                className="rounded-md border border-[var(--color-line)] p-1.5 text-[var(--color-muted)] hover:text-[var(--color-danger)]"
-                aria-label={`Remove ${provider.id}`}
-              >
-                <Trash2 size={12} />
-              </button>
+              <div className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  onClick={() => startEdit(provider)}
+                  className="rounded-md border border-[var(--color-line)] p-1.5 text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                  aria-label={`Edit ${provider.id}`}
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void (async () => {
+                    try {
+                      await RemoveCustomProvider(provider.id);
+                      await refresh();
+                      onChanged?.();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : String(err));
+                    }
+                  })()}
+                  className="rounded-md border border-[var(--color-line)] p-1.5 text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                  aria-label={`Remove ${provider.id}`}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>

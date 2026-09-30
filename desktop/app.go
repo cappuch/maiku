@@ -1520,10 +1520,16 @@ func (a *App) ListCustomProviders() []core.CustomProvider {
 
 // UpsertCustomProvider creates or updates a custom OpenAI-compatible route.
 func (a *App) UpsertCustomProvider(provider core.CustomProvider) error {
+	previousID := provider.PreviousID
+	apiKey := provider.APIKey
+	id := strings.ToLower(strings.TrimSpace(provider.ID))
 	if err := core.UpsertCustomProvider(codingagent.GetAgentDir(), provider); err != nil {
 		return err
 	}
-	_ = core.RefreshProviderModels(context.Background(), provider.ID)
+	if err := core.ApplyCustomProviderCredential(core.DefaultAuthStorage(), previousID, id, apiKey); err != nil {
+		return err
+	}
+	_ = core.RefreshProviderModels(context.Background(), id)
 	a.refreshConfiguredModels()
 	return nil
 }

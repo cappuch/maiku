@@ -128,6 +128,39 @@ func TestProviderConfigPreservesOtherProvidersAndSecrets(t *testing.T) {
 	}
 }
 
+func TestEditingCustomProviderPrefillsAndKeepsKey(t *testing.T) {
+	dir := t.TempDir()
+	store := core.NewAuthStorage(filepath.Join(dir, "auth.json"))
+	if err := store.Write("acme", core.Credential{Type: core.CredentialAPIKey, Key: "kept-secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.UpsertCustomProvider(dir, core.CustomProvider{
+		ID: "acme", Name: "Acme", BaseURL: "https://old.example/v1", API: "openai-completions", Models: []string{"acme-large"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f := newForm("provider", setupField{key: "id"})
+	f.input.SetValue("acme")
+	if err := f.accept(t.TempDir(), dir); err != nil {
+		t.Fatal(err)
+	}
+	if !f.editing || f.values["url"] != "https://old.example/v1" || f.values["display"] != "Acme" || f.values["models"] != "acme-large" {
+		t.Fatalf("edit form was not prefilled: editing=%v values=%v", f.editing, f.values)
+	}
+	if err := saveProviderConfig(dir, store, map[string]string{
+		"id": "acme", "display": "Acme Cloud", "url": "https://new.example/v1", "api": "openai-responses", "models": "acme-large", "key": "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	configured := core.LoadCustomProviders(dir)
+	if len(configured) != 1 || configured[0].BaseURL != "https://new.example/v1" || configured[0].Name != "Acme Cloud" || configured[0].API != "openai-responses" {
+		t.Fatalf("provider = %+v", configured)
+	}
+	if store.APIKey("acme") != "kept-secret" {
+		t.Fatalf("key = %q", store.APIKey("acme"))
+	}
+}
+
 func TestSetupValidation(t *testing.T) {
 	for _, tc := range []struct{ key, value string }{{"url", "file:///tmp/server"}, {"url", "https://user:password@example.com"}, {"transport", "bogus"}, {"args", `["ok",42]`}, {"headers", `{"Authorization":42}`}, {"env", `["wrong"]`}, {"command", ""}} {
 		t.Run(tc.key+tc.value, func(t *testing.T) {

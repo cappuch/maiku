@@ -21,7 +21,7 @@ const commandHelp = `Commands
 /models <provider/model>  Switch models directly
 /models refresh           Refresh configured provider catalogs
 /providers                List providers and credential status
-/provider add [ID]        Add a provider or update a built-in API key
+/provider add [ID]        Add a provider, or edit a custom route and its API key
 /codex-login              Connect a ChatGPT Codex subscription
 /miru-login               Sign in to Miru in your browser
 /mcp                      List MCP servers and connection status
@@ -170,7 +170,7 @@ func (m *model) command(text string) tea.Cmd {
 			rows = append(rows, fmt.Sprintf("%s · %s · %d models", provider.ID, status, len(provider.Models)))
 		}
 		sort.Strings(rows)
-		m.showNotice("Providers\n\n" + strings.Join(rows, "\n") + "\n\n/provider add [ID] to configure a provider.")
+		m.showNotice("Providers\n\n" + strings.Join(rows, "\n") + "\n\n/provider add [ID] to add a provider or edit a custom route.")
 	case "/mcp", "/mcps":
 		switch rest {
 		case "add":

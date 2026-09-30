@@ -22,6 +22,9 @@ func LoadCustomProviders(agentDir string) []CustomProvider {
 
 // UpsertCustomProvider creates or updates a custom OpenAI-compatible route.
 func UpsertCustomProvider(agentDir string, provider CustomProvider) error {
+	previousID := strings.ToLower(strings.TrimSpace(provider.PreviousID))
+	provider.PreviousID = ""
+	provider.APIKey = ""
 	provider.ID = strings.ToLower(strings.TrimSpace(provider.ID))
 	provider.Name = strings.TrimSpace(provider.Name)
 	provider.BaseURL = strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/")
@@ -49,18 +52,66 @@ func UpsertCustomProvider(agentDir string, provider CustomProvider) error {
 	}
 
 	list := LoadCustomProviders(agentDir)
-	found := false
-	for i, existing := range list {
-		if existing.ID == provider.ID {
-			list[i] = provider
-			found = true
-			break
+	if previousID != "" && previousID != provider.ID {
+		found := false
+		for _, existing := range list {
+			if existing.ID == provider.ID {
+				return fmt.Errorf("provider id %q already exists", provider.ID)
+			}
+		}
+		for i, existing := range list {
+			if existing.ID == previousID {
+				list[i] = provider
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("unknown custom provider %q", previousID)
+		}
+	} else {
+		found := false
+		for i, existing := range list {
+			if existing.ID == provider.ID {
+				list[i] = provider
+				found = true
+				break
+			}
+		}
+		if !found {
+			list = append(list, provider)
 		}
 	}
-	if !found {
-		list = append(list, provider)
-	}
 	return PatchGlobalSettings(agentDir, map[string]any{"customProviders": list})
+}
+
+// ApplyCustomProviderCredential stores an edited API key. A blank key keeps
+// the current credential and moves it when the provider id changes.
+func ApplyCustomProviderCredential(store *AuthStorage, previousID, id, apiKey string) error {
+	if store == nil {
+		return nil
+	}
+	previousID = strings.ToLower(strings.TrimSpace(previousID))
+	id = strings.ToLower(strings.TrimSpace(id))
+	apiKey = strings.TrimSpace(apiKey)
+	if id == "" {
+		return fmt.Errorf("provider id is required")
+	}
+	if apiKey != "" {
+		if err := store.Write(id, Credential{Type: CredentialAPIKey, Key: apiKey}); err != nil {
+			return err
+		}
+	} else if previousID != "" && previousID != id {
+		if cred, ok := store.Read(previousID); ok {
+			if err := store.Write(id, cred); err != nil {
+				return err
+			}
+		}
+	}
+	if previousID != "" && previousID != id {
+		return store.Delete(previousID)
+	}
+	return nil
 }
 
 // RemoveCustomProvider deletes a custom provider from settings.

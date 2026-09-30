@@ -133,6 +133,8 @@ export type CustomProvider = {
   baseUrl: string;
   api?: string;
   models?: string[];
+  previousId?: string;
+  apiKey?: string;
 };
 
 export type ModelInfo = {

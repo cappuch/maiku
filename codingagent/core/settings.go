@@ -75,12 +75,12 @@ type Settings struct {
 	Subagent            *bool                  `json:"subagent,omitempty"`
 	// Conductor is an experimental mode: the user talks to one agent, and
 	// that agent directs monitor subagents that watch the work.
-	Conductor *bool `json:"conductor,omitempty"`
-	EnabledModels       []string               `json:"enabledModels,omitempty"`
-	QuietStartup        *bool                  `json:"quietStartup,omitempty"`
-	AutoUpdate          *bool                  `json:"autoUpdate,omitempty"`
-	HTTPProxy           string                 `json:"httpProxy,omitempty"`
-	HTTPIdleTimeoutMs   *int                   `json:"httpIdleTimeoutMs,omitempty"`
+	Conductor         *bool    `json:"conductor,omitempty"`
+	EnabledModels     []string `json:"enabledModels,omitempty"`
+	QuietStartup      *bool    `json:"quietStartup,omitempty"`
+	AutoUpdate        *bool    `json:"autoUpdate,omitempty"`
+	HTTPProxy         string   `json:"httpProxy,omitempty"`
+	HTTPIdleTimeoutMs *int     `json:"httpIdleTimeoutMs,omitempty"`
 	// CustomProviders are user-defined OpenAI-compatible (or other) routes.
 	CustomProviders []CustomProvider `json:"customProviders,omitempty"`
 }
@@ -94,6 +94,10 @@ type CustomProvider struct {
 	API string `json:"api,omitempty"`
 	// Models are optional static model ids used when /models is unavailable.
 	Models []string `json:"models,omitempty"`
+	// PreviousID renames an existing custom provider. It is not stored.
+	PreviousID string `json:"previousId,omitempty"`
+	// APIKey is written to the credential store when non-empty. It is not stored.
+	APIKey string `json:"apiKey,omitempty"`
 }
 
 // SettingsScope identifies which settings file a value or error came from.
