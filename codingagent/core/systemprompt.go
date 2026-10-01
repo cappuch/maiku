@@ -24,7 +24,7 @@ var DefaultToolSnippets = map[string]string{
 	"miru":       "Search repository code by meaning",
 	"web_search": "Search the web with DuckDuckGo HTML search",
 	"curl":       "Fetch HTTP(S) page content with a browser user agent",
-	"computer":   "Control the macOS desktop (click, type, keys, scroll) and see a screenshot after each action",
+	"computer":   "Control the desktop (click, type, keys, scroll) and see a screenshot after each action",
 	"subagent":   "Delegate a self-contained task to an independent child Maiku and receive a Markdown report",
 }
 

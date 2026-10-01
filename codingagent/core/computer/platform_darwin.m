@@ -14,12 +14,12 @@
     [[NSColor clearColor] set];
     NSRectFill(dirty);
 
-    CGFloat x = self.cx, y = self.cy, s = self.pressed ? 1.25 : 1.45, arm = 28;
+    CGFloat x = self.cx, y = self.cy, s = self.pressed ? 0.7 : 0.78, arm = 16;
     NSColor *main = self.pressed ? [NSColor systemGreenColor] : [NSColor systemIndigoColor];
 
     if (self.pressed) {
         [[main colorWithAlphaComponent:0.35] set];
-        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(x - 14, y - 14, 28, 28)] fill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(x - 8, y - 8, 16, 16)] fill];
     }
 
     // Arrow pointer with its tip at (x, y); round joins soften every corner.
@@ -36,16 +36,16 @@
     [NSGraphicsContext saveGraphicsState];
     NSShadow *sh = [[NSShadow alloc] init];
     sh.shadowColor = [NSColor colorWithWhite:0 alpha:0.45];
-    sh.shadowBlurRadius = 4;
-    sh.shadowOffset = NSMakeSize(0, -1.5);
+    sh.shadowBlurRadius = 2.5;
+    sh.shadowOffset = NSMakeSize(0, -1);
     [sh set];
     [[NSColor whiteColor] set];
-    p.lineWidth = 5.5; [p stroke];
+    p.lineWidth = 3; [p stroke];
     [NSGraphicsContext restoreGraphicsState];
 
     [main set];
     [p fill];
-    p.lineWidth = 2.5; [p stroke];
+    p.lineWidth = 1.4; [p stroke];
 
     if (self.status.length) {
         NSDictionary *attrs = @{

@@ -33,13 +33,22 @@ func trusted() bool {
 }
 
 // Available reports whether this process can drive the local desktop.
-func Available() bool { return runtime.GOOS == "darwin" }
+func Available() bool {
+	switch runtime.GOOS {
+	case "darwin":
+		return true
+	case "windows":
+		return runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64"
+	default:
+		return false
+	}
+}
 
 // Act runs one computer action and returns a screenshot taken afterward.
 // Actions are serialized so the pointer is never driven from two calls at once.
 func Act(ctx context.Context, name string, args map[string]any) (Result, error) {
 	if !Available() {
-		return Result{}, fmt.Errorf("computer use requires macOS")
+		return Result{}, fmt.Errorf("computer use requires macOS or Windows")
 	}
 	actionMu.Lock()
 	defer actionMu.Unlock()

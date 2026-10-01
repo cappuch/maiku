@@ -4,12 +4,24 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"runtime"
 
 	"github.com/cappuch/maiku/agent"
 	"github.com/cappuch/maiku/ai"
 )
 
 const ToolName = "computer"
+
+func toolDescription() string {
+	const shared = "Coordinates are pixels in the screenshot this tool returns (top-left origin, 1:1 with the screen). " +
+		"Start with action=screenshot. Then click the center of UI elements, type only after focusing a field, and prefer reliable shortcuts. " +
+		"Use batch for a short sequence you are sure about (click a field, type, press enter) and put delay_ms on steps that need the UI to catch up. " +
+		"Every call returns a new screenshot — read it before the next action."
+	if runtime.GOOS == "windows" {
+		return "Control the user's Windows desktop. " + shared + " The Windows key opens Start; alt+tab switches windows. In key combos, cmd and win are the Windows key."
+	}
+	return "Control the user's macOS desktop. " + shared + " cmd+space opens Spotlight."
+}
 
 var toolSchema = []byte(`{
 	"type": "object",
@@ -23,7 +35,7 @@ var toolSchema = []byte(`{
 		"button": {"type": "string", "enum": ["left", "right", "middle"]},
 		"clicks": {"type": "integer", "description": "1 for a single click, 2 for a double click"},
 		"text": {"type": "string", "description": "Text to type at the current keyboard focus. Newlines press Enter"},
-		"keys": {"type": "string", "description": "Key combo joined with +, e.g. enter, cmd+space, cmd+shift+t, escape"},
+		"keys": {"type": "string", "description": "Key combo joined with +, e.g. enter, cmd+c, ctrl+c, alt+tab, escape. On Windows, cmd and win are the Windows key"},
 		"seconds": {"type": "integer", "description": "Seconds to wait, 1-10"},
 		"actions": {
 			"type": "array",
@@ -46,18 +58,15 @@ var toolSchema = []byte(`{
 	"required": ["action"]
 }`)
 
-// Tool drives the macOS desktop and returns a screenshot after each action.
+// Tool drives the local desktop and returns a screenshot after each action.
 // The desktop app registers it. The CLI does not import this package, so the
 // tool is left out of CLI builds.
 func Tool() *agent.AgentTool {
 	return &agent.AgentTool{
 		Tool: ai.Tool{
-			Name: ToolName,
-			Description: "Control the user's macOS desktop. Coordinates are pixels in the screenshot this tool returns (top-left origin, 1:1 with the screen). " +
-				"Start with action=screenshot. Then click the center of UI elements, type only after focusing a field, and prefer reliable shortcuts (cmd+space opens Spotlight). " +
-				"Use batch for a short sequence you are sure about (click a field, type, press enter) and put delay_ms on steps that need the UI to catch up. " +
-				"Every call returns a new screenshot — read it before the next action.",
-			Parameters: toolSchema,
+			Name:        ToolName,
+			Description: toolDescription(),
+			Parameters:  toolSchema,
 		},
 		Label:         ToolName,
 		ExecutionMode: agent.ToolExecutionSequential,

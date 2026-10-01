@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !(windows && (amd64 || arm64))
 
 package computer
 
@@ -29,5 +29,5 @@ func keyEvent(int, int, uint64) {}
 func typeUnicode([]uint16) {}
 
 func screenshot(bool) ([]byte, error) {
-	return nil, fmt.Errorf("computer use requires macOS")
+	return nil, fmt.Errorf("computer use requires macOS or Windows")
 }
