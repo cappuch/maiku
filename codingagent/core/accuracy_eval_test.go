@@ -125,7 +125,7 @@ const llamaPrompt = "You are a coding agent. Use tools to inspect and edit this 
 
 const llamaUser = `This llama.cpp tree has several independent bugs. llama-cli does not successfully generate from the local SmolLM GGUF. A failing run can still exit 0. Success is a generation rate above 0 t/s and no error log. Fix every bug, rebuild, and rerun until that is true.
 
-The model is already at /Users/mikus/Desktop/bench/SmolLM-135M.Q4_K_S.gguf
+The model is already at /Users/user/Desktop/bench/SmolLM-135M.Q4_K_S.gguf
 If that file is missing you may download only this URL:
 https://huggingface.co/mradermacher/SmolLM-135M-GGUF/resolve/main/SmolLM-135M.Q4_K_S.gguf?download=true
 

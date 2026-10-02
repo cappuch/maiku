@@ -67,7 +67,7 @@ type SubagentToolOptions struct {
 	StreamFn agent.StreamFn
 
 	// ChildTools overrides the child's toolset. A nil slice gives every child
-	// the normal non-delegating Maiku tools: read, bash, edit, and write.
+	// the normal non-delegating Maiku tools: read, cli, wait, edit, and write.
 	// The subagent tool is always removed, even if supplied here.
 	ChildTools []agent.AgentTool
 
@@ -397,7 +397,7 @@ func childToolset(options SubagentToolOptions) []agent.AgentTool {
 		// root-only subagent extension can never leak into this child registry.
 		selected = SelectToolsWithOptions(
 			options.Cwd,
-			[]string{"read", "bash", "edit", "write"},
+			[]string{"read", "cli", "wait", "edit", "write"},
 			nil,
 			false,
 			ToolOptions{

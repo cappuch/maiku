@@ -31,7 +31,7 @@ func TestChildToolsetInheritsShellCommandPrefix(t *testing.T) {
 		ShellCommandPrefix: "echo child-prefix",
 	})
 	for i := range childTools {
-		if childTools[i].Name != "bash" {
+		if childTools[i].Name != "cli" {
 			continue
 		}
 		result, err := childTools[i].Execute(
@@ -47,12 +47,12 @@ func TestChildToolsetInheritsShellCommandPrefix(t *testing.T) {
 			t.Fatalf("content length = %d, want 1", len(result.Content))
 		}
 		output := strings.ReplaceAll(strings.TrimSpace(result.Content[0].Text), "\r\n", "\n")
-		if output != "child-prefix\nchild-command" {
+		if !strings.HasPrefix(output, "child-prefix\nchild-command\n") {
 			t.Fatalf("output = %q", result.Content[0].Text)
 		}
 		return
 	}
-	t.Fatal("child toolset is missing bash")
+	t.Fatal("child toolset is missing cli")
 }
 
 func testSubagentModel() ai.Model {
@@ -159,7 +159,7 @@ func TestSubagentRunsIndependentChildAndReturnsStructuredReport(t *testing.T) {
 			for _, tool := range ctx.Tools {
 				got[tool.Name] = true
 			}
-			for _, name := range []string{"read", "bash", "edit", "write"} {
+			for _, name := range []string{"read", "cli", "wait", "edit", "write"} {
 				if !got[name] {
 					t.Errorf("child is missing normal tool %q", name)
 				}

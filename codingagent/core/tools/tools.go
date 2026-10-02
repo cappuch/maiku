@@ -8,6 +8,9 @@ type ToolName string
 const (
 	ToolRead      ToolName = "read"
 	ToolBash      ToolName = "bash"
+	ToolCLI       ToolName = "cli"
+	ToolWait      ToolName = "wait"
+	ToolWaitFor   ToolName = "wait_for"
 	ToolEdit      ToolName = "edit"
 	ToolWrite     ToolName = "write"
 	ToolGrep      ToolName = "grep"
@@ -26,7 +29,8 @@ type BuiltinToolOptions struct {
 // DefaultToolNames are the tools included in coding-agent's default toolset.
 var DefaultToolNames = []string{
 	string(ToolRead),
-	string(ToolBash),
+	string(ToolCLI),
+	string(ToolWait),
 	string(ToolEdit),
 	string(ToolWrite),
 	string(ToolMiru),
@@ -80,7 +84,16 @@ func CreateBuiltinToolsWithOptions(cwd string, names []string, options BuiltinTo
 		names = DefaultToolNames
 	}
 	selected := make([]*agent.AgentTool, 0, len(names))
+	sessions := newCLISessions(cwd, options.Bash)
 	for _, name := range names {
+		switch ToolName(name) {
+		case ToolCLI:
+			selected = append(selected, sessions.cliTool())
+			continue
+		case ToolWait, ToolWaitFor:
+			selected = append(selected, sessions.waitTool(name))
+			continue
+		}
 		if tool := createBuiltinTool(name, cwd, options); tool != nil {
 			selected = append(selected, tool)
 		}

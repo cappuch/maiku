@@ -9,13 +9,16 @@ import (
 
 // DefaultToolNames are the built-in tools enabled when the caller does not
 // pass an allowlist.
-var DefaultToolNames = []string{"read", "bash", "edit", "write", "miru", "web_search", "curl"}
+var DefaultToolNames = []string{"read", "cli", "wait", "edit", "write", "miru", "web_search", "curl"}
 
 // DefaultToolSnippets are the one-line tool descriptions rendered into the
 // system prompt's "Available tools" section.
 var DefaultToolSnippets = map[string]string{
 	"read":       "Read file contents (with optional line offset/limit)",
 	"bash":       "Execute shell commands in the working directory",
+	"cli":        "Start shell commands and interact with persistent sessions",
+	"wait":       "Wait for a CLI session to finish or pause for a duration",
+	"wait_for":   "Wait for a CLI session to finish or pause for a duration",
 	"edit":       "Edit files with exact find/replace",
 	"write":      "Write files (creates or overwrites)",
 	"grep":       "Search file contents",
@@ -116,7 +119,9 @@ func BuildSystemPrompt(options BuildSystemPromptOptions) string {
 		guidelines = append(guidelines, guideline)
 	}
 
-	if has["bash"] && !has["grep"] && !has["find"] && !has["ls"] {
+	if has["cli"] && !has["grep"] && !has["find"] && !has["ls"] {
+		addGuideline("Use the cli tool for shell-based file operations and searches. Start a command once, then send input or use wait for its session_id until it finishes; do not rerun a running command")
+	} else if has["bash"] && !has["grep"] && !has["find"] && !has["ls"] {
 		addGuideline("Use the bash tool for shell-based file operations and searches")
 	}
 	if has["read"] && (has["edit"] || has["write"]) {
