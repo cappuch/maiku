@@ -88,9 +88,10 @@ type chatRequest struct {
 }
 
 type chunkUsage struct {
-	PromptTokens        int `json:"prompt_tokens"`
-	CompletionTokens    int `json:"completion_tokens"`
-	PromptTokensDetails *struct {
+	PromptTokens         int `json:"prompt_tokens"`
+	CompletionTokens     int `json:"completion_tokens"`
+	PromptCacheHitTokens int `json:"prompt_cache_hit_tokens"`
+	PromptTokensDetails  *struct {
 		CachedTokens     int `json:"cached_tokens"`
 		CacheWriteTokens int `json:"cache_write_tokens"`
 	} `json:"prompt_tokens_details"`
@@ -695,6 +696,11 @@ func parseUsage(u chunkUsage, model ai.Model) ai.Usage {
 	if u.PromptTokensDetails != nil {
 		cacheRead = u.PromptTokensDetails.CachedTokens
 		cacheWrite = u.PromptTokensDetails.CacheWriteTokens
+	}
+	// DeepSeek reports the same split as prompt_cache_hit_tokens instead of
+	// OpenAI's prompt_tokens_details.cached_tokens.
+	if u.PromptCacheHitTokens > cacheRead {
+		cacheRead = u.PromptCacheHitTokens
 	}
 	input := max(u.PromptTokens-cacheRead-cacheWrite, 0)
 	usage := ai.Usage{

@@ -7,11 +7,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cappuch/maiku/agent"
 	"github.com/cappuch/maiku/ai"
+	"github.com/cappuch/maiku/codingagent/core/tools"
 )
 
 // TestMemoryMockAgentFlows runs the real agent loop and real file tools
@@ -240,6 +243,105 @@ func kb(n uint64) string {
 }
 
 func kbInt(n int) string { return kb(uint64(n)) }
+
+func TestCodingFix(t *testing.T) {
+	cwd := writeBrokenAdd(t)
+	var step atomic.Int32
+	marks := []time.Time{time.Now()}
+	stream := func(model ai.Model, ctx ai.Context, _ *ai.SimpleStreamOptions) *ai.AssistantMessageEventStream {
+		marks = append(marks, time.Now())
+		n := int(step.Add(1))
+		switch n {
+		case 1:
+			return doneStream(toolMessage(model, "read", "read-1", map[string]any{"path": "add.go"}))
+		case 2:
+			return doneStream(toolMessage(model, "edit", "edit-1", map[string]any{
+				"path":  "add.go",
+				"edits": []any{map[string]any{"oldText": "return a - b", "newText": "return a + b"}},
+			}))
+		case 3:
+			return doneStream(toolMessage(model, "bash", "bash-1", map[string]any{"command": "go test"}))
+		default:
+			if !toolOK(ctx, "bash") {
+				t.Errorf("go test tool result was not success: %+v", ctx.Messages)
+			}
+			return doneStream(textMessage(model, "fixed"))
+		}
+	}
+	session := NewAgentSession(AgentSessionOptions{
+		Model: testSubagentModel(), APIKey: "test-key", StreamFn: stream, SessionID: "coding",
+		SystemPrompt: "fix the bug",
+		Tools:        SelectToolsWithOptions(cwd, []string{"read", "edit", "bash"}, nil, false, ToolOptions{}),
+	})
+	start := time.Now()
+	if err := session.Prompt(context.Background(), "Add returns the wrong value. Fix it and run go test."); err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(start)
+	marks = append(marks, time.Now())
+	session.Dispose()
+	body, err := os.ReadFile(filepath.Join(cwd, "add.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "return a + b") {
+		t.Fatalf("edit did not land:\n%s", body)
+	}
+	fmt.Printf("\nmaiku coding fix: total %s  steps %s\n", elapsed.Round(time.Millisecond), stepGaps(marks))
+}
+
+func stepGaps(marks []time.Time) string {
+	labels := []string{"setup", "read", "edit", "test", "finish"}
+	var b strings.Builder
+	for i := 1; i < len(marks) && i-1 < len(labels); i++ {
+		if i > 1 {
+			b.WriteString("  ")
+		}
+		fmt.Fprintf(&b, "%s %s", labels[i-1], marks[i].Sub(marks[i-1]).Round(time.Millisecond))
+	}
+	return b.String()
+}
+
+func toolOK(ctx ai.Context, name string) bool {
+	for _, m := range ctx.Messages {
+		if m.Role == "toolResult" && m.ToolName == name && !m.IsError {
+			return true
+		}
+	}
+	return false
+}
+
+func writeBrokenAdd(t *testing.T) string {
+	t.Helper()
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "go.mod"), []byte("module example.com/calc\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "add.go"), []byte("package calc\n\nfunc Add(a, b int) int { return a - b }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "add_test.go"), []byte("package calc\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(2, 3) != 5 {\n\t\tt.Fatalf(\"Add(2, 3) = %d\", Add(2, 3))\n\t}\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return cwd
+}
+
+func BenchmarkFileRead(b *testing.B) {
+	dir := b.TempDir()
+	body := []byte(repeatLines("package p\nfunc F() int { return 1 }\n", 40*1024))
+	if err := os.WriteFile(filepath.Join(dir, "src.go"), body, 0o644); err != nil {
+		b.Fatal(err)
+	}
+	tool := tools.CreateReadTool(dir)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		res, err := tool.Execute(context.Background(), "read-bench", map[string]any{"path": "src.go"}, nil)
+		if err != nil || len(res.Content) == 0 {
+			b.Fatal(err)
+		}
+	}
+}
 
 func repeatLines(line string, size int) string {
 	out := make([]byte, 0, size)
