@@ -137,6 +137,7 @@ func BuildSystemPrompt(options BuildSystemPromptOptions) string {
 	}
 	addGuideline("Be concise in your responses")
 	addGuideline("Show file paths clearly when working with files")
+	addGuideline("Once the verification command named by the user succeeds, stop and report the result. Do not re-read, refactor, or run the command again.")
 	addGuideline("Act autonomously: use tools immediately to fulfill the user's request. Do not ask for permission before running commands or editing files. Do not present menus of options — just do the work and report results.")
 
 	guidelinesList := ""

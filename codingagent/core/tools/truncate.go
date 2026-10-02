@@ -11,8 +11,8 @@ import (
 // whichever is hit first wins: a line limit and a byte limit. Truncation
 // never returns partial lines (except the bash tail-truncation edge case).
 const (
-	DefaultMaxLines   = 2000
-	DefaultMaxBytes   = 50 * 1024 // 50KB
+	DefaultMaxLines   = 400
+	DefaultMaxBytes   = 16 * 1024 // 16KB
 	GrepMaxLineLength = 500       // Max chars per grep match line
 )
 

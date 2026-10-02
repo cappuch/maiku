@@ -50,7 +50,7 @@ func CreateReadTool(cwd string) *agent.AgentTool {
 		Tool: ai.Tool{
 			Name: "read",
 			Description: fmt.Sprintf(
-				"Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to %d lines or %dKB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
+				"Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to %d lines or %dKB (whichever is hit first). Read the smallest offset/limit that can answer the question. Do not page through a large file unless the user asked for the whole file.",
 				DefaultMaxLines, DefaultMaxBytes/1024,
 			),
 			Parameters: readSchema,
