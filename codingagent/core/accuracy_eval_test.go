@@ -37,7 +37,7 @@ func TestAgentAccuracy(t *testing.T) {
 		cwd := materializeTask(t, task)
 		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 		start := time.Now()
-		usage, reqs, stop, err := runMaikuTask(ctx, cwd, key, model, "eval", goFixPrompt, goFixUser)
+		usage, reqs, stop, err := runMaikuTask(ctx, cwd, key, model, "eval", goFixPrompt, goFixUser, nil)
 		cancel()
 		ok := testsPass(cwd)
 		if ok {
@@ -90,7 +90,7 @@ func TestAgentHeavy(t *testing.T) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			start := time.Now()
-			usage, reqs, stop, err := runMaikuTask(ctx, dirs[i], key, model, "heavy-"+task.name, goFixPrompt, goFixUser)
+			usage, reqs, stop, err := runMaikuTask(ctx, dirs[i], key, model, "heavy-"+task.name, goFixPrompt, goFixUser, nil)
 			cancel()
 			rows[i] = row{name: task.name, ok: testsPass(dirs[i]), dur: time.Since(start), err: err, in: usage.Input, out: usage.Output, hit: usage.CacheRead, reqs: reqs, stop: stop}
 		}(i, task)
@@ -121,15 +121,15 @@ func offpeak(input, cacheRead, output int) string {
 const goFixPrompt = "You are a coding agent. Use tools to inspect and edit the project. Do not modify tests. Run go test and stop when it passes."
 const goFixUser = "The tests in this package fail. Fix the implementation so go test passes. Do not modify the tests."
 
-const llamaPrompt = "You are a coding agent. Use tools to inspect and edit this repository. Do not download anything except the single model URL named in the task, and only if that file is missing."
+const llamaPrompt = "You are a coding agent. Use tools to inspect and edit this repository. Do not download anything except the single model URL named in the task, and only if that file is missing. Once the verification command named by the user succeeds, stop and report the result. Do not re-read, refactor, or run the command again."
 
-const llamaUser = `This llama.cpp tree is broken. llama-cli fails on the local SmolLM GGUF with "Invalid input batch" because sequence positions are decreasing. Fix the source so generation works.
+const llamaUser = `This llama.cpp tree has several independent bugs. llama-cli does not successfully generate from the local SmolLM GGUF. A failing run can still exit 0. Success is a generation rate above 0 t/s and no error log. Fix every bug, rebuild, and rerun until that is true.
 
 The model is already at /Users/mikus/Desktop/bench/SmolLM-135M.Q4_K_S.gguf
 If that file is missing you may download only this URL:
 https://huggingface.co/mradermacher/SmolLM-135M-GGUF/resolve/main/SmolLM-135M.Q4_K_S.gguf?download=true
 
-Do not download any other file, model, submodule, or package. Do not modify the GGUF. Rebuild llama-cli and stop when this command generates tokens instead of reporting an invalid batch:
+Do not download any other file, model, submodule, or package. Do not modify the GGUF.
 
 ./build/bin/llama-cli -m /Users/mikus/Desktop/bench/SmolLM-135M.Q4_K_S.gguf -p "Hello" -n 8 --no-warmup -c 128 --single-turn --no-display-prompt`
 
@@ -145,13 +145,15 @@ func TestLlamaBug(t *testing.T) {
 		Input: []string{"text"},
 	}
 	cwd := "/Users/mikus/Desktop/bench/llama-maiku"
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	start := time.Now()
-	usage, reqs, stop, err := runMaikuTask(ctx, cwd, key, model, "llama", llamaPrompt, llamaUser)
+	var heavy time.Duration
+	usage, reqs, stop, err := runMaikuTask(ctx, cwd, key, model, "llama", llamaPrompt, llamaUser, &heavy)
 	cancel()
+	wall := time.Since(start)
 	ok := llamaGenerates(cwd)
-	fmt.Printf("maiku  llama    %s  %s  err=%v  stop=%s  reqs=%d  in=%d out=%d cache_read=%d hit=%s  cost=%s\n",
-		mark(ok), time.Since(start).Round(time.Millisecond), shortErr(err), stop, reqs,
+	fmt.Printf("maiku  llama    %s  agent=%s  heavy=%s  wall=%s  err=%v  stop=%s  reqs=%d  in=%d out=%d cache_read=%d hit=%s  cost=%s\n",
+		mark(ok), (wall - heavy).Round(time.Millisecond), heavy.Round(time.Millisecond), wall.Round(time.Millisecond), shortErr(err), stop, reqs,
 		usage.Input, usage.Output, usage.CacheRead, hitRate(usage.Input, usage.CacheRead, 0),
 		offpeak(usage.Input, usage.CacheRead, usage.Output))
 	if !ok {
@@ -171,7 +173,7 @@ func llamaGenerates(dir string) bool {
 	cmd.Stderr = &buf
 	_ = cmd.Run()
 	out := buf.String()
-	if strings.Contains(out, "positions are decreasing") || strings.Contains(out, "Invalid input batch") {
+	if strings.Contains(out, "positions are decreasing") || strings.Contains(out, "Invalid input batch") || strings.Contains(out, "not a single-token batch") || strings.Contains(out, "out_of_range") {
 		return false
 	}
 	m := regexp.MustCompile(`Generation:\s+([0-9.]+)\s+t/s`).FindStringSubmatch(out)
@@ -182,13 +184,49 @@ func llamaGenerates(dir string) bool {
 	return err == nil && v > 0
 }
 
-func runMaikuTask(ctx context.Context, cwd, key string, model ai.Model, sessionID, systemPrompt, userPrompt string) (ai.Usage, int, string, error) {
+func heavyCommand(cmd string) bool {
+	c := strings.ToLower(cmd)
+	if strings.HasPrefix(strings.TrimSpace(c), "make") {
+		return true
+	}
+	for _, key := range []string{"cmake", "ninja", "clang", "g++", "c++", "llama-cli"} {
+		if strings.Contains(c, key) {
+			return true
+		}
+	}
+	return false
+}
+
+func runMaikuTask(ctx context.Context, cwd, key string, model ai.Model, sessionID, systemPrompt, userPrompt string, heavy *time.Duration) (ai.Usage, int, string, error) {
 	session := NewAgentSession(AgentSessionOptions{
 		Model: model, APIKey: key, ThinkingLevel: agent.ThinkingLow, SessionID: sessionID,
 		SystemPrompt: systemPrompt,
 		Tools:        SelectToolsWithOptions(cwd, []string{"read", "edit", "write", "bash"}, nil, false, ToolOptions{}),
 	})
 	defer session.Dispose()
+	if heavy != nil {
+		var mu sync.Mutex
+		starts := map[string]time.Time{}
+		session.Subscribe(func(ev agent.AgentEvent) {
+			if ev.ToolName != "bash" {
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			switch ev.Type {
+			case agent.EventToolExecutionStart:
+				cmd, _ := ev.Args["command"].(string)
+				if heavyCommand(cmd) {
+					starts[ev.ToolCallID] = time.Now()
+				}
+			case agent.EventToolExecutionEnd:
+				if t0, ok := starts[ev.ToolCallID]; ok {
+					*heavy += time.Since(t0)
+					delete(starts, ev.ToolCallID)
+				}
+			}
+		})
+	}
 	err := session.Prompt(ctx, userPrompt)
 	usage, reqs, stop := maikuUsage(session)
 	return usage, reqs, stop, err
