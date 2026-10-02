@@ -29,6 +29,7 @@ type BuiltinToolOptions struct {
 // DefaultToolNames are the tools included in coding-agent's default toolset.
 var DefaultToolNames = []string{
 	string(ToolRead),
+	string(ToolBash),
 	string(ToolCLI),
 	string(ToolWait),
 	string(ToolEdit),

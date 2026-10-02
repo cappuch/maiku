@@ -159,7 +159,7 @@ func TestSubagentRunsIndependentChildAndReturnsStructuredReport(t *testing.T) {
 			for _, tool := range ctx.Tools {
 				got[tool.Name] = true
 			}
-			for _, name := range []string{"read", "cli", "wait", "edit", "write"} {
+			for _, name := range []string{"read", "bash", "cli", "wait", "edit", "write"} {
 				if !got[name] {
 					t.Errorf("child is missing normal tool %q", name)
 				}

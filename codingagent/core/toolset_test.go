@@ -10,6 +10,7 @@ import (
 func TestBuiltinToolSchemasValidate(t *testing.T) {
 	cases := map[string]map[string]any{
 		"read":       {"path": "main.go"},
+		"bash":       {"command": "echo hi"},
 		"cli":        {"command": "echo hi"},
 		"wait":       {"seconds": 0},
 		"edit":       {"path": "main.go", "edits": []any{map[string]any{"oldText": "a", "newText": "b"}}},
@@ -40,7 +41,7 @@ func TestBuiltinToolSchemasValidate(t *testing.T) {
 	}
 
 	prompt := BuildSystemPrompt(BuildSystemPromptOptions{Cwd: t.TempDir()})
-	for _, name := range []string{"cli", "wait", "miru", "web_search", "curl"} {
+	for _, name := range []string{"bash", "cli", "wait", "miru", "web_search", "curl"} {
 		if !strings.Contains(prompt, "- "+name+":") {
 			t.Errorf("default system prompt does not advertise %q", name)
 		}
