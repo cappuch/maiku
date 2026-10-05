@@ -214,6 +214,9 @@ func run(out *ai.AssistantMessageEventStream, model ai.Model, ctxData ai.Context
 	}
 
 	baseURL := strings.TrimRight(model.BaseURL, "/")
+	if corrected := ai.UseCorrectedBaseURL(model.Provider); corrected != "" {
+		baseURL = strings.TrimRight(corrected, "/")
+	}
 	if baseURL == "" {
 		fail(fmt.Errorf("model %s has no baseUrl configured", model.ID), false)
 		return
@@ -258,7 +261,8 @@ func run(out *ai.AssistantMessageEventStream, model ai.Model, ctxData ai.Context
 	}
 
 	client := &http.Client{}
-	resp, err := ai.DoHTTP(client, httpReq, ai.HTTPRetryPolicyFromStreamOptions(opts))
+	policy := ai.HTTPRetryPolicyFromStreamOptions(opts)
+	resp, err := ai.DoHTTP(client, httpReq, policy)
 	if err != nil {
 		if aborted {
 			fail(fmt.Errorf("request was aborted"), true)
@@ -267,6 +271,7 @@ func run(out *ai.AssistantMessageEventStream, model ai.Model, ctxData ai.Context
 		}
 		return
 	}
+	resp, baseURL = ai.PromoteOpenAIV1(client, resp, policy, model.Provider, baseURL, "/responses", body)
 	defer func() { _ = resp.Body.Close() }()
 
 	if opts.OnResponse != nil {

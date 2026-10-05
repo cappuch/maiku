@@ -126,14 +126,36 @@ func FetchProviderModels(ctx context.Context, provider providers.Provider, apiKe
 }
 
 func fetchRemoteModels(ctx context.Context, provider providers.Provider, apiKey string) ([]ai.Model, error) {
+	if corrected := ai.UseCorrectedBaseURL(provider.ID); corrected != "" {
+		provider.BaseURL = corrected
+	}
+	models, status, err := fetchRemoteModelsOnce(ctx, provider, apiKey)
+	if err == nil || status != http.StatusNotFound || !ai.AllowV1Fallback(provider.ID, provider.BaseURL) {
+		return models, err
+	}
+	fixed, ok := ai.BaseURLWithV1(provider.BaseURL)
+	if !ok {
+		return nil, err
+	}
+	retry := provider
+	retry.BaseURL = fixed
+	models, _, retryErr := fetchRemoteModelsOnce(ctx, retry, apiKey)
+	if retryErr != nil {
+		return nil, err
+	}
+	ai.NoteCorrectedBaseURL(provider.ID, fixed)
+	return models, nil
+}
+
+func fetchRemoteModelsOnce(ctx context.Context, provider providers.Provider, apiKey string) ([]ai.Model, int, error) {
 	url, err := modelsListURL(provider, apiKey)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("accept", "application/json")
 	setModelsAuthHeaders(req, provider.ID, apiKey)
@@ -141,25 +163,26 @@ func fetchRemoteModels(ctx context.Context, provider providers.Provider, apiKey 
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	closeErr := resp.Body.Close()
 	if readErr != nil {
-		return nil, readErr
+		return nil, resp.StatusCode, readErr
 	}
 	if closeErr != nil {
-		return nil, closeErr
+		return nil, resp.StatusCode, closeErr
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		snippet := strings.TrimSpace(string(body))
 		if len(snippet) > 240 {
 			snippet = snippet[:240] + "…"
 		}
-		return nil, fmt.Errorf("models route %s returned %d: %s", url, resp.StatusCode, snippet)
+		return nil, resp.StatusCode, fmt.Errorf("models route %s returned %d: %s", url, resp.StatusCode, snippet)
 	}
 
-	return parseModelsResponse(provider, body)
+	models, err := parseModelsResponse(provider, body)
+	return models, resp.StatusCode, err
 }
 
 func modelsListURL(provider providers.Provider, apiKey string) (string, error) {

@@ -10,6 +10,13 @@ import (
 	"github.com/cappuch/maiku/codingagent"
 )
 
+func init() {
+	ai.SetV1FallbackPolicy(customProviderAllowsV1)
+	ai.SetBaseURLCorrectedHook(func(providerID, baseURL string) {
+		_ = adoptCustomProviderBaseURL("", providerID, baseURL)
+	})
+}
+
 var customProviderIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
 
 // LoadCustomProviders returns custom providers from global settings.
@@ -49,6 +56,10 @@ func UpsertCustomProvider(agentDir string, provider CustomProvider) error {
 	}
 	if !strings.HasPrefix(provider.BaseURL, "http://") && !strings.HasPrefix(provider.BaseURL, "https://") {
 		return fmt.Errorf("base URL must start with http:// or https://")
+	}
+	ai.ForgetCorrectedBaseURL(provider.ID)
+	if previousID != "" {
+		ai.ForgetCorrectedBaseURL(previousID)
 	}
 
 	list := LoadCustomProviders(agentDir)
@@ -120,6 +131,7 @@ func RemoveCustomProvider(agentDir, id string) error {
 	if id == "" {
 		return fmt.Errorf("provider id is required")
 	}
+	ai.ForgetCorrectedBaseURL(id)
 	list := LoadCustomProviders(agentDir)
 	out := make([]CustomProvider, 0, len(list))
 	found := false
@@ -134,6 +146,65 @@ func RemoveCustomProvider(agentDir, id string) error {
 		return fmt.Errorf("unknown custom provider %q", id)
 	}
 	return PatchGlobalSettings(agentDir, map[string]any{"customProviders": out})
+}
+
+func customProviderAllowsV1(providerID, baseURL string) bool {
+	if _, ok := ai.BaseURLWithV1(baseURL); !ok {
+		return false
+	}
+	for _, provider := range LoadCustomProviders("") {
+		if provider.ID != providerID {
+			continue
+		}
+		api := provider.API
+		if api == "" {
+			api = ai.APIOpenAICompletions
+		}
+		return api == ai.APIOpenAICompletions || api == ai.APIOpenAIResponses
+	}
+	return false
+}
+
+// adoptCustomProviderBaseURL stores a base URL that only worked after /v1
+// was appended. It leaves the saved route alone when the user has since
+// edited it to something else.
+func adoptCustomProviderBaseURL(agentDir, id, baseURL string) error {
+	id = strings.ToLower(strings.TrimSpace(id))
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if id == "" || baseURL == "" {
+		return nil
+	}
+	list := LoadCustomProviders(agentDir)
+	updated := false
+	for i, existing := range list {
+		if existing.ID != id {
+			continue
+		}
+		current := strings.TrimRight(existing.BaseURL, "/")
+		if current == baseURL {
+			break
+		}
+		fixed, ok := ai.BaseURLWithV1(current)
+		if !ok || fixed != baseURL {
+			return nil
+		}
+		list[i].BaseURL = baseURL
+		updated = true
+		break
+	}
+	if updated {
+		if err := PatchGlobalSettings(agentDir, map[string]any{"customProviders": list}); err != nil {
+			return err
+		}
+	}
+	remoteModelsMu.Lock()
+	if models, ok := remoteModels[id]; ok {
+		for i := range models {
+			models[i].BaseURL = baseURL
+		}
+	}
+	remoteModelsMu.Unlock()
+	return nil
 }
 
 // CustomProviderAsRegistry converts a custom provider into registry metadata.
