@@ -158,6 +158,8 @@ export function AppShell(props: Props) {
   const folderSessions = sessions.filter(
     (s) => !state.cwd || s.cwd === state.cwd || s.path.includes(encodeCwd(state.cwd)),
   );
+  const draftKey = state.sessionId || state.cwd || "new";
+  const showHero = messages.length === 0 && !streaming;
 
   const openCtxMenu = (e: MouseEvent, path: string) => {
     e.preventDefault();
@@ -422,27 +424,16 @@ export function AppShell(props: Props) {
               </div>
             )}
 
-            {messages.length === 0 && !streaming ? (
-              <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 pb-8">
-                <div className="w-full max-w-[760px]">
-                  <Composer
-                    placement="hero"
-                    draftKey={state.sessionId || state.cwd || "new"}
-                    streaming={streaming}
-                    queue={props.messageQueue}
-                    onSend={props.onSend}
-                    onRemoveQueued={props.onRemoveQueued}
-                    onClearQueue={props.onClearQueue}
-                    onCommand={props.onCommand}
-                    onAbort={props.onAbort}
-                    disabled={!state.cwd}
-                  />
-                </div>
-              </div>
-            ) : (
-              <>
+            <div
+              className={
+                showHero
+                  ? "flex min-h-0 flex-1 flex-col items-center justify-center px-6 pb-8"
+                  : "flex min-h-0 flex-1 flex-col"
+              }
+            >
+              {showHero ? null : (
                 <Transcript
-                  key={state.sessionId || state.cwd || "new"}
+                  key={draftKey}
                   messages={messages}
                   scrollRef={scrollRef}
                   onScroll={props.onTranscriptScroll}
@@ -460,8 +451,13 @@ export function AppShell(props: Props) {
                   lastError={error}
                   onDismissError={props.onDismissError}
                 />
+              )}
+              {/* Stay mounted across the empty-state and transcript layouts so a
+                  sent prompt is not reloaded into a freshly mounted composer. */}
+              <div className={showHero ? "w-full max-w-[760px]" : undefined}>
                 <Composer
-                  draftKey={state.sessionId || state.cwd || "new"}
+                  placement={showHero ? "hero" : "dock"}
+                  draftKey={draftKey}
                   streaming={streaming}
                   queue={props.messageQueue}
                   onSend={props.onSend}
@@ -471,8 +467,8 @@ export function AppShell(props: Props) {
                   onAbort={props.onAbort}
                   disabled={!state.cwd}
                 />
-              </>
-            )}
+              </div>
+            </div>
           </main>
         </div>
 

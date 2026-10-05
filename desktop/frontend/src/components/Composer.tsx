@@ -167,6 +167,8 @@ export function Composer({
   const suggestReq = useRef(0);
   const suggestListRef = useRef<HTMLDivElement>(null);
   const activeDraftKey = useRef(draftKey);
+  // Bumped on user edits so a rejected send does not overwrite a newer draft.
+  const draftEpoch = useRef(0);
 
   useEffect(() => {
     if (activeDraftKey.current === draftKey) return;
@@ -259,6 +261,7 @@ export function Composer({
           : `${item.value} `;
     const next = before + insert + after;
     const cursor = before.length + insert.length;
+    draftEpoch.current += 1;
     setValue(next);
     writeDraft(draftKey, next);
     setSuggestions([]);
@@ -318,6 +321,7 @@ export function Composer({
       }
       addImages(imgs);
       if (mentions.length > 0) {
+        draftEpoch.current += 1;
         setValue((prev) => {
           const sep = prev && !prev.endsWith(" ") && !prev.endsWith("\n") ? " " : "";
           const next = `${prev}${sep}${mentions.join(" ")} `;
@@ -366,16 +370,30 @@ export function Composer({
     const sourceDraftKey = draftKey;
     const sentAttachmentIds = new Set(attachments.map((attachment) => attachment.id));
     const images = attachments.map(({ mimeType, data, name }) => ({ mimeType, data, name }));
+    const epoch = ++draftEpoch.current;
+    // Clear before onSend resolves. The field hydrates from this draft, and
+    // the transcript appears before the call returns — a new composer would
+    // otherwise load the prompt that was just sent.
+    setValue("");
+    writeDraft(sourceDraftKey, "");
+    setSuggestions([]);
+    setSuggestRange(null);
     setSubmitting(true);
     try {
       const accepted = await onSend(text, images);
-      if (!accepted) return;
-      if (readDraft(sourceDraftKey) === draftValue) writeDraft(sourceDraftKey, "");
+      if (!accepted) {
+        const editedThisSession =
+          draftEpoch.current !== epoch && activeDraftKey.current === sourceDraftKey;
+        if (!editedThisSession && !readDraft(sourceDraftKey)) {
+          writeDraft(sourceDraftKey, draftValue);
+          if (draftEpoch.current === epoch && activeDraftKey.current === sourceDraftKey) {
+            setValue(draftValue);
+          }
+        }
+        return;
+      }
       if (activeDraftKey.current !== sourceDraftKey) return;
-      setValue((current) => current === draftValue ? "" : current);
       setAttachments((current) => current.filter((attachment) => !sentAttachmentIds.has(attachment.id)));
-      setSuggestions([]);
-      setSuggestRange(null);
     } finally {
       setSubmitting(false);
     }
@@ -550,6 +568,7 @@ export function Composer({
               }
               onChange={(e) => {
                 const next = e.target.value;
+                draftEpoch.current += 1;
                 setValue(next);
                 writeDraft(draftKey, next);
                 void refreshSuggestions(next, e.target.selectionStart ?? next.length);
